@@ -647,6 +647,14 @@ struct ConfigInstaller {
             configPath: ".zcode/cli/config.json", configKey: "hooks",
             format: .zcode,
             events: defaultEvents(for: .zcode)
+        ),
+        // Panda Code — Claude Code compatible hook format.
+        // Config at ~/.panda/settings.json with "hooks" key.
+        CLIConfig(
+            name: "Panda Code", source: "panda",
+            configPath: ".panda/settings.json", configKey: "hooks",
+            format: .claude,
+            events: defaultEvents(for: .claude)
         )
     ]
 

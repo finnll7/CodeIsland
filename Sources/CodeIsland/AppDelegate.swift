@@ -157,10 +157,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         #endif
 
-        // Sparkle runs scheduled checks itself on the cadence declared in
-        // Info.plist (SUScheduledCheckInterval). Start the updater once — it
-        // no-ops for Homebrew-installed builds (brew owns those upgrades).
-        UpdateChecker.shared.start()
+        // Auto-update (Sparkle) has been removed to reduce runtime overhead.
 
         // The jingle confirms a launch the user just made; at login it is
         // noise on every boot for everyone with Launch at Login on.

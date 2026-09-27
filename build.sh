@@ -86,15 +86,10 @@ build_mac() {
     cp Info.plist "$APP_BUNDLE/Contents/Info.plist"
 
     echo "Embedding frameworks..."
-    # Sparkle.xcframework macos-arm64_x86_64 slice is already universal; copy as-is to preserve symlinks.
-    SPARKLE_SRC=".build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework"
-    if [ ! -d "$SPARKLE_SRC" ]; then
-        echo "Missing Sparkle.framework at $SPARKLE_SRC" >&2
-        exit 1
-    fi
-    ditto "$SPARKLE_SRC" "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework"
+    # Sparkle has been removed — no frameworks to embed.
 
     # Add rpath so executables can locate embedded frameworks.
+    # (No embedded frameworks currently; kept for future use.)
     install_name_tool -add_rpath "@executable_path/../Frameworks" \
         "$APP_BUNDLE/Contents/MacOS/$APP_NAME" 2>/dev/null || true
     install_name_tool -add_rpath "@executable_path/../../Frameworks" \
@@ -140,21 +135,6 @@ build_mac() {
     fi
 
     echo "Code signing ($SIGN_ID)..."
-    # Sign embedded frameworks first (inside-out).
-    SPARKLE_FW="$APP_BUNDLE/Contents/Frameworks/Sparkle.framework"
-    # Sign nested helpers inside Sparkle before the framework itself.
-    for xpc in "$SPARKLE_FW/Versions/B/XPCServices/"*.xpc; do
-        [ -e "$xpc" ] || continue
-        codesign --force --options runtime --sign "$SIGN_ID" "$xpc"
-    done
-    if [ -d "$SPARKLE_FW/Versions/B/Updater.app" ]; then
-        codesign --force --options runtime --sign "$SIGN_ID" "$SPARKLE_FW/Versions/B/Updater.app"
-    fi
-    if [ -e "$SPARKLE_FW/Versions/B/Autoupdate" ]; then
-        codesign --force --options runtime --sign "$SIGN_ID" "$SPARKLE_FW/Versions/B/Autoupdate"
-    fi
-    codesign --force --options runtime --sign "$SIGN_ID" "$SPARKLE_FW"
-
     codesign --force --options runtime --sign "$SIGN_ID" "$APP_BUNDLE/Contents/Helpers/codeisland-bridge"
     codesign --force --options runtime --sign "$SIGN_ID" --entitlements "$ENTITLEMENTS" "$APP_BUNDLE"
 

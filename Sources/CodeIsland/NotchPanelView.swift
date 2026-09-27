@@ -2080,6 +2080,7 @@ private struct SessionListView: View {
                 ("zcode", "ZCode"),
                 ("aiwork", "AiWork"),
                 ("aiwork-cli", "AiWork CLI"),
+                ("panda", "Panda Code"),
             ]
             var result: [(String, String?, [String])] = []
             var seen = Set<String>()
@@ -3542,6 +3543,7 @@ private let cliIconFiles: [String: String] = [
     // MascotRenderHarness/testRenderCliIcons (MASCOT_ICON_DIR=…).
     "kiro": "kiro",
     "openclaw": "openclaw",
+    "panda": "panda",
 ]
 
 private var cliIconCache: [String: NSImage] = [:]

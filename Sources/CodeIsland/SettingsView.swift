@@ -2230,7 +2230,6 @@ private struct BuddyPage: View {
 
 private struct AboutPage: View {
     @ObservedObject private var l10n = L10n.shared
-    @ObservedObject private var updater = UpdateChecker.shared
 
     var body: some View {
         VStack {
@@ -2266,13 +2265,6 @@ private struct AboutPage: View {
                     )
                 }
 
-                // In-app update section
-                updateSection
-
-                if let reason = updater.readOnlyInstallReason {
-                    readOnlyLocationNotice(reason)
-                }
-
                 Button {
                     DiagnosticsExporter.export()
                 } label: {
@@ -2299,126 +2291,6 @@ private struct AboutPage: View {
 
             Spacer()
         }
-    }
-
-    @ViewBuilder
-    private var updateSection: some View {
-        switch updater.state {
-        case .idle:
-            aboutButton(l10n["check_for_updates"], icon: "arrow.triangle.2.circlepath") {
-                updater.checkForUpdates()
-            }
-
-        case .checking:
-            HStack(spacing: 6) {
-                ProgressView().controlSize(.small)
-                Text(l10n["check_for_updates"])
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-            }
-
-        case .upToDate:
-            Button {
-                updater.checkForUpdates()
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                        .font(.system(size: 13))
-                    Text(String(format: l10n["no_update_body"], AppVersion.current))
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .buttonStyle(.plain)
-            .onHover { h in
-                if h { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-            }
-
-        case let .available(version):
-            VStack(spacing: 8) {
-                HStack(spacing: 6) {
-                    Image(systemName: "arrow.down.circle.fill")
-                        .foregroundStyle(.blue)
-                        .font(.system(size: 13))
-                    Text(String(format: l10n["update_available_body"], version, AppVersion.current))
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                }
-
-                if updater.isHomebrewInstall {
-                    HStack(spacing: 8) {
-                        Text(l10n["update_homebrew_command"])
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
-                            .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: .controlBackgroundColor)))
-                        aboutButton(l10n["update_copy_command"], icon: "doc.on.doc") {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(l10n["update_homebrew_command"], forType: .string)
-                        }
-                    }
-                } else {
-                    // Sparkle owns the download + install alert; this button just
-                    // re-surfaces it if the user dismissed it earlier.
-                    aboutButton(l10n["update_now"], icon: "arrow.down.to.line") {
-                        updater.checkForUpdates()
-                    }
-                }
-            }
-
-        // Download progress and install state are owned by Sparkle's standard
-        // UI, not the About page — those enum cases no longer exist.
-
-        case let .failed(message):
-            VStack(spacing: 8) {
-                HStack(spacing: 6) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                        .font(.system(size: 13))
-                    Text(String(format: l10n["update_failed_body"], message))
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                }
-                aboutButton(l10n["update_retry"], icon: "arrow.clockwise") {
-                    updater.checkForUpdates()
-                }
-            }
-        }
-    }
-
-    /// Sparkle cannot replace a bundle it may not write, and its failure alert
-    /// never says why. Say it up front, with the one fix that works.
-    private func readOnlyLocationNotice(_ reason: AppInstallLocation.ReadOnlyReason) -> some View {
-        let message: String
-        switch reason {
-        case .translocated: message = l10n["readonly_location_translocated"]
-        case .diskImage: message = l10n["readonly_location_disk_image"]
-        case .readOnlyVolume: message = l10n["readonly_location_volume"]
-        }
-        return VStack(spacing: 8) {
-            HStack(alignment: .top, spacing: 6) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
-                    .font(.system(size: 13))
-                Text(message)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            aboutButton(l10n["open_applications_folder"], icon: "folder") {
-                NSWorkspace.shared.open(URL(fileURLWithPath: "/Applications", isDirectory: true))
-            }
-        }
-        .frame(maxWidth: 420)
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.orange.opacity(0.08))
-        )
     }
 
     private func aboutButton(_ title: String, icon: String, action: @escaping () -> Void) -> some View {

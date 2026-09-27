@@ -42,6 +42,7 @@ public struct SessionSnapshot: Sendable {
         "zcode",
         "aiwork",
         "aiwork-cli",
+        "panda",
     ]
 
     /// Sources whose tool/description text arrives as a rapid delta stream
@@ -345,6 +346,10 @@ public struct SessionSnapshot: Sendable {
             "oh my pi": "pi",
             "z-code": "zcode",
             "z code": "zcode",
+            "panda-cli": "panda",
+            "pandacli": "panda",
+            "panda agent": "panda",
+            "panda-agent": "panda",
         ]
         let canonical = aliases[normalized] ?? normalized
         let dynamicSupportedSources = supportedSources.union(loadCustomSources())
@@ -442,7 +447,7 @@ public struct SessionSnapshot: Sendable {
         ".claude", ".cursor", ".codex", ".gemini", ".qoder", ".qoder-cn", ".qoderwork",
         ".trae", ".trae-cn", ".kiro", ".copilot", ".factory", ".codebuddy",
         ".codybuddycn", ".stepfun", ".workbuddy", ".hermes", ".kimi", ".kimi-code",
-        ".grok", ".pi", ".omp", ".qwen", ".zcode", ".openclaw", ".codeisland",
+        ".grok", ".pi", ".omp", ".qwen", ".zcode", ".openclaw", ".codeisland", ".panda",
     ]
 
     /// Resolve a human project folder label from a cwd path.
@@ -684,6 +689,7 @@ public struct SessionSnapshot: Sendable {
         case "zcode": return "ZCode"
         case "aiwork": return "AiWork"
         case "aiwork-cli": return "AiWork CLI"
+        case "panda": return "Panda Code"
         default:
             if let customName = Self.loadCustomSourceNames()[source] {
                 return customName

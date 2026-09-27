@@ -81,6 +81,9 @@ public enum CLIProcessResolver {
             return lowercasedPath.hasSuffix("/agy")
                 || lowercasedPath.contains("/agy ")
                 || lowercasedPath.contains("/google-antigravity")
+        case "panda":
+            return lowercasedPath.hasSuffix("/panda")
+                || lowercasedPath.contains("/panda ")
         default:
             return lowercasedPath.contains("/\(normalizedSource)")
         }

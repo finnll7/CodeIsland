@@ -1201,6 +1201,7 @@ final class AppState {
         case "pi":         return findPiPids(candidatePids: candidatePids)
         case "cline":      return findClinePids(candidatePids: candidatePids)
         case "zcode":      return findZcodePids(candidatePids: candidatePids)
+        case "panda":      return findPandaPids(candidatePids: candidatePids)
         default:           return []
         }
     }
@@ -5275,6 +5276,21 @@ final class AppState {
         findPids(
             matchingPathSubstrings: [
                 "/zcode.app/contents/",
+            ],
+            candidatePids: candidatePids
+        )
+    }
+
+    // Panda Code — Node.js based CLI tool installed via npm/Homebrew.
+    private nonisolated static func findPandaPids(candidatePids: [pid_t]? = nil) -> [pid_t] {
+        findPids(
+            matchingPathSubstrings: [
+                "/.local/bin/panda",
+                "/.panda/",
+            ],
+            argSubstrings: [
+                "/.panda/",
+                "/panda-agent/",
             ],
             candidatePids: candidatePids
         )
