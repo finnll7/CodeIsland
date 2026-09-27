@@ -31,31 +31,38 @@ enum SessionTitleStore {
     }
 
     /// Panda Code writes each session's title as `type: "session"` lines at the
-    /// head of its transcript (`~/.panda/projects/<encoded>/sessions/<id>.jsonl`,
-    /// same slash→hyphen encoding as Claude). Reads only the head 64 KB — the
-    /// title never lives deeper — and keeps the last line's value.
+    /// head of its transcript. Two layouts exist:
+    ///   - Panda Desktop: ~/.panda/desktop/projects/<encoded>/sessions/<id>.jsonl
+    ///   - Panda CLI:     ~/.panda/projects/<encoded>/sessions/<id>.jsonl
+    /// Both use the same slash→hyphen encoding as Claude. Reads only the head
+    /// 64 KB — the title never lives deeper — and keeps the last line's value.
     static func pandaTitle(sessionId: String) -> ResolvedSessionTitle? {
-        let root = NSHomeDirectory() + "/.panda/projects"
+        let roots = [
+            NSHomeDirectory() + "/.panda/desktop/projects",
+            NSHomeDirectory() + "/.panda/projects",
+        ]
         let fm = FileManager.default
-        for project in (try? fm.contentsOfDirectory(atPath: root)) ?? [] {
-            let path = root + "/" + project + "/sessions/" + sessionId + ".jsonl"
-            guard let handle = FileHandle(forReadingAtPath: path) else { continue }
-            defer { handle.closeFile() }
-            let size = handle.seekToEndOfFile()
-            handle.seek(toFileOffset: 0)
-            let data = handle.readData(ofLength: Int(min(size, 65_536)))
-            guard let head = String(data: data, encoding: .utf8) else { continue }
+        for root in roots {
+            for project in (try? fm.contentsOfDirectory(atPath: root)) ?? [] {
+                let path = root + "/" + project + "/sessions/" + sessionId + ".jsonl"
+                guard let handle = FileHandle(forReadingAtPath: path) else { continue }
+                defer { handle.closeFile() }
+                let size = handle.seekToEndOfFile()
+                handle.seek(toFileOffset: 0)
+                let data = handle.readData(ofLength: Int(min(size, 65_536)))
+                guard let head = String(data: data, encoding: .utf8) else { continue }
 
-            var latest: String?
-            for line in head.split(whereSeparator: \.isNewline) {
-                guard let json = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
-                      json["type"] as? String == "session",
-                      let title = trimmedTitle(json["title"])
-                else { continue }
-                latest = title
-            }
-            if let latest {
-                return ResolvedSessionTitle(title: latest, source: .pandaSessionTitle)
+                var latest: String?
+                for line in head.split(whereSeparator: \.isNewline) {
+                    guard let json = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
+                          json["type"] as? String == "session",
+                          let title = trimmedTitle(json["title"])
+                    else { continue }
+                    latest = title
+                }
+                if let latest {
+                    return ResolvedSessionTitle(title: latest, source: .pandaSessionTitle)
+                }
             }
         }
         return nil

@@ -1,7 +1,8 @@
 import Foundation
 
 /// Token-usage aggregation over the local Panda Code turn metrics
-/// (~/.panda/projects/*/sessions/*.jsonl) — local-first, no provider API calls.
+/// (~/.panda[/desktop]/projects/*/sessions/*.jsonl) — local-first, no provider
+/// API calls.
 ///
 /// Panda's transcript layout differs from Claude Code's in two ways that shape
 /// this scanner:
@@ -93,35 +94,39 @@ public enum PandaUsageScanner {
         var activeFiles = Set<String>()
 
         let fm = FileManager.default
-        let projectsDir = pandaHome + "/projects"
-        for project in (try? fm.contentsOfDirectory(atPath: projectsDir)) ?? [] {
-            let sessionsDir = projectsDir + "/" + project + "/sessions"
-            for file in (try? fm.contentsOfDirectory(atPath: sessionsDir)) ?? [] {
-                guard file.hasSuffix(".jsonl") else { continue }
-                let path = sessionsDir + "/" + file
-                // mtime gate: untouched-since-cutoff transcripts can't contain
-                // in-window turns, so the scan stays cheap on big histories.
-                guard let attrs = try? fm.attributesOfItem(atPath: path),
-                      let mtime = attrs[.modificationDate] as? Date,
-                      mtime >= cutoff else { continue }
-                activeFiles.insert(path)
-                let size = (attrs[.size] as? NSNumber)?.uint64Value ?? 0
+        // Panda Desktop writes transcripts under ~/.panda/desktop/projects/...,
+        // the CLI under ~/.panda/projects/... — scan both.
+        let projectsRoots = [pandaHome + "/desktop/projects", pandaHome + "/projects"]
+        for projectsDir in projectsRoots {
+            for project in (try? fm.contentsOfDirectory(atPath: projectsDir)) ?? [] {
+                let sessionsDir = projectsDir + "/" + project + "/sessions"
+                for file in (try? fm.contentsOfDirectory(atPath: sessionsDir)) ?? [] {
+                    guard file.hasSuffix(".jsonl") else { continue }
+                    let path = sessionsDir + "/" + file
+                    // mtime gate: untouched-since-cutoff transcripts can't contain
+                    // in-window turns, so the scan stays cheap on big histories.
+                    guard let attrs = try? fm.attributesOfItem(atPath: path),
+                          let mtime = attrs[.modificationDate] as? Date,
+                          mtime >= cutoff else { continue }
+                    activeFiles.insert(path)
+                    let size = (attrs[.size] as? NSNumber)?.uint64Value ?? 0
 
-                var entry = cache.files[path] ?? FileCache.FileEntry()
-                if size < entry.consumedBytes {
-                    // Truncated or replaced — start over.
-                    entry = FileCache.FileEntry()
-                }
-                if size > entry.consumedBytes {
-                    consumeNewLines(path: path, into: &entry)
-                }
-                cache.files[path] = entry
+                    var entry = cache.files[path] ?? FileCache.FileEntry()
+                    if size < entry.consumedBytes {
+                        // Truncated or replaced — start over.
+                        entry = FileCache.FileEntry()
+                    }
+                    if size > entry.consumedBytes {
+                        consumeNewLines(path: path, into: &entry)
+                    }
+                    cache.files[path] = entry
 
-                for (_, turn) in entry.turns where turn.timestamp > monday && turn.timestamp <= now {
-                    thisWeek.add(turn.usage)
-                    let dayIndex = calendarDayOffset(from: monday, to: turn.timestamp)
-                    if dayIndex >= 0 && dayIndex < daysPerWeek {
-                        daily[dayIndex] += turn.usage.outputTokens
+                    for (_, turn) in entry.turns where turn.timestamp > monday && turn.timestamp <= now {
+                        thisWeek.add(turn.usage)
+                        let dayIndex = calendarDayOffset(from: monday, to: turn.timestamp)
+                        if dayIndex >= 0 && dayIndex < daysPerWeek {
+                            daily[dayIndex] += turn.usage.outputTokens
+                        }
                     }
                 }
             }

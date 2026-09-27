@@ -70,6 +70,11 @@ build_watch() {
 
 build_mac() {
     echo "Building $APP_NAME (arm64 only)..."
+    # Keep Spotlight/LaunchServices from indexing build artifacts — a stray
+    # .app copy here shows up in Spotlight as an "unknown version" duplicate.
+    mkdir -p .build
+    touch .build/.metadata_never_index
+
     swift build -c release --arch arm64
 
     # Resolve the SwiftPM products directory dynamically. The layout moved
