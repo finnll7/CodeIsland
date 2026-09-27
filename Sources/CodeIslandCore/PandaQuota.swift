@@ -1,31 +1,24 @@
 import Foundation
 
-/// Plan-quota data for Panda, matching what Panda Desktop's own
-/// "我的用量" popover shows. Two acquisition paths produce this:
-///
-/// 1. CDP (automatic): a headless clone of the Panda Desktop binary is
-///    launched with an isolated profile + `--remote-debugging-port`; its own
-///    `window.pandaDesktop.quotaFetch()` runs inside the real app runtime and
-///    returns the already-formatted structure (display strings, renewalText).
-///    This path needs no token — auth state lives in ~/.panda regardless of
-///    profile, and the safeStorage key comes from the shared Keychain entry.
-///
-/// 2. Direct API (manual token): `GET {authBaseUrl}/llm/quota/me` with a
-///    user-pasted Bearer token; raw numeric fields (usedCredits, …).
+/// Plan-quota data from the Panda gateway (`/llm/quota/me`), reverse-engineered
+/// from Panda Desktop's own "我的用量" popover (quotaRuntime.fetch → WLt mapper).
+/// Field semantics verified against the Desktop renderer:
+///   planLabel "二档套餐", usedCredits 16971 → "16,971",
+///   creditLimit 35000, usagePercent 48, remainingCredits 18029,
+///   windowEndLabel "2026-09-28" → "将于 2026年9月28日 刷新".
 public struct PandaQuotaSnapshot: Equatable, Sendable {
     public let planLabel: String
+    /// Numeric credits (used / limit / remaining). `creditLimit == -1` means unlimited.
     public let usedCredits: Double
     public let creditLimit: Double
     public let remainingCredits: Double
-    /// 0…100.
+    /// 0…100 as reported by the gateway (already computed from used/limit).
     public let usagePercent: Double
     /// "user" / "organization" / "none" — none means no plan at all.
     public let billingScope: String
     public let quotaStatus: String
-    /// Formatted window text from the gateway, e.g. "2026-09-21 ～ 2026-09-28".
-    public let periodText: String
-    /// Formatted renewal line, e.g. "将于 2026年9月28日 刷新".
-    public let renewalText: String
+    /// Window end as a raw label ("2026-09-28"); displayed verbatim.
+    public let windowEndLabel: String
     public let isUnlimited: Bool
     public let fetchedAt: Date
 
@@ -37,8 +30,7 @@ public struct PandaQuotaSnapshot: Equatable, Sendable {
         usagePercent: Double,
         billingScope: String,
         quotaStatus: String,
-        periodText: String,
-        renewalText: String,
+        windowEndLabel: String,
         isUnlimited: Bool,
         fetchedAt: Date
     ) {
@@ -49,14 +41,14 @@ public struct PandaQuotaSnapshot: Equatable, Sendable {
         self.usagePercent = usagePercent
         self.billingScope = billingScope
         self.quotaStatus = quotaStatus
-        self.periodText = periodText
-        self.renewalText = renewalText
+        self.windowEndLabel = windowEndLabel
         self.isUnlimited = isUnlimited
         self.fetchedAt = fetchedAt
     }
 
     public var hasPlan: Bool { billingScope != "none" && planLabel != "没套餐" }
 
+    /// Severity bucket for footer colouring.
     public enum Level: Sendable { case normal, warning, critical }
     public var level: Level {
         if usagePercent >= 100 { return .critical }
@@ -66,48 +58,34 @@ public struct PandaQuotaSnapshot: Equatable, Sendable {
 
     public enum ParseError: Error, Equatable { case notJSON, noQuota }
 
-    /// Parse either the gateway's raw response (`usedCredits`, …) or the
-    /// Desktop-mapped structure (`usedCreditsDisplay`, …) that `quotaFetch()`
-    /// returns. Numeric fields win when both are present.
+    /// Parse the `/llm/quota/me` response (field names per Jbn normaliser).
     public static func parse(_ data: Data, fetchedAt: Date = Date()) throws -> PandaQuotaSnapshot {
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw ParseError.notJSON
         }
+        // Some gateways wrap in { data: {...} } — unwrap one level.
         let payload: [String: Any] = (obj["data"] as? [String: Any]) ?? obj
-        func str(_ key: String) -> String { payload[key] as? String ?? "" }
-        func num(_ key: String) -> Double? {
+        func num(_ key: String) -> Double {
             if let n = payload[key] as? NSNumber { return n.doubleValue }
             if let s = payload[key] as? String, let d = Double(s.replacingOccurrences(of: ",", with: "")) { return d }
-            return nil
+            return 0
         }
-        func display(_ key: String) -> Double? {
-            guard let s = payload[key] as? String else { return nil }
-            if s == "不限" { return -1 }
-            return Double(s.replacingOccurrences(of: ",", with: ""))
-        }
-
-        guard payload["planLabel"] != nil || payload["usedCredits"] != nil || payload["usedCreditsDisplay"] != nil else {
+        func str(_ key: String) -> String { payload[key] as? String ?? "" }
+        guard payload["planLabel"] != nil || payload["usedCredits"] != nil else {
             throw ParseError.noQuota
         }
-
-        let used = num("usedCredits") ?? display("usedCreditsDisplay") ?? 0
-        let limit = num("creditLimit") ?? display("creditLimitDisplay") ?? 0
-        let remaining = num("remainingCredits") ?? display("remainingCreditsDisplay") ?? 0
-        let isUnlimited = (payload["isUnlimited"] as? Bool) ?? (limit == -1)
         return PandaQuotaSnapshot(
             planLabel: str("planLabel"),
-            usedCredits: used,
-            creditLimit: limit,
-            remainingCredits: remaining,
-            usagePercent: num("usagePercent") ?? 0,
+            usedCredits: num("usedCredits"),
+            creditLimit: num("creditLimit"),
+            remainingCredits: num("remainingCredits"),
+            usagePercent: num("usagePercent"),
             billingScope: str("billingScope"),
             quotaStatus: str("quotaStatus"),
-            periodText: str("periodText"),
-            renewalText: str("renewalText"),
-            isUnlimited: isUnlimited,
+            windowEndLabel: str("windowEndLabel"),
+            isUnlimited: (payload["isUnlimited"] as? Bool) ?? (num("creditLimit") == -1),
             fetchedAt: fetchedAt
-        )
-    }
+        )    }
 
     /// "16,971" / "不限" — mirrors the Desktop's s$ formatter.
     public func creditsDisplay(_ value: Double) -> String {
