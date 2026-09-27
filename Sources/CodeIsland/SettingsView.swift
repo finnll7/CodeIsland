@@ -1271,6 +1271,7 @@ private struct AppearancePage: View {
     @AppStorage(SettingsKey.showClaudeQuota) private var showClaudeQuota = SettingsDefaults.showClaudeQuota
     @AppStorage(SettingsKey.showPandaQuota) private var showPandaQuota = SettingsDefaults.showPandaQuota
     @AppStorage(SettingsKey.pandaGatewayToken) private var pandaGatewayToken = ""
+    @AppStorage(SettingsKey.pandaLauncherPatch) private var pandaLauncherPatch = SettingsDefaults.pandaLauncherPatch
     @AppStorage(SettingsKey.collapsedWidthScale) private var collapsedWidthScale = SettingsDefaults.collapsedWidthScale
     @AppStorage(SettingsKey.notchHeightMode) private var notchHeightModeRaw = SettingsDefaults.notchHeightMode
     @AppStorage(SettingsKey.customNotchHeight) private var customNotchHeight = SettingsDefaults.customNotchHeight
@@ -1442,6 +1443,11 @@ private struct AppearancePage: View {
                         .font(.system(size: 11))
                         .foregroundStyle(.tertiary)
                     if showPandaQuota {
+                        Toggle(l10n["panda_launcher_patch"], isOn: $pandaLauncherPatch)
+                            .padding(.top, 2)
+                        Text(l10n["panda_launcher_patch_desc"])
+                            .font(.system(size: 11))
+                            .foregroundStyle(.tertiary)
                         SecureField(l10n["panda_quota_token_hint"], text: $pandaGatewayToken)
                             .textFieldStyle(.roundedBorder)
                             .font(.system(size: 11, design: .monospaced))

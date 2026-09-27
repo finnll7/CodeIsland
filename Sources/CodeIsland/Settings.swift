@@ -94,6 +94,9 @@ enum SettingsKey {
     static let showPandaQuota = "showPandaQuota"
     static let pandaGatewayToken = "pandaGatewayToken"
     static let pandaGatewayBaseURL = "pandaGatewayBaseURL"
+    /// Launcher patch: re-execs Panda's binary with a DevTools port so quota
+    /// queries attach to the live instance instead of spawning a clone.
+    static let pandaLauncherPatch = "pandaLauncherPatch"
 
     // Completion notification: "expand" | "glance" | "off". Successor of the
     // boolean autoExpandOnCompletion — see AppState.completionStyle migration.
@@ -222,6 +225,7 @@ struct SettingsDefaults {
     static let showPandaUsage = true
     static let showClaudeQuota = false
     static let showPandaQuota = false
+    static let pandaLauncherPatch = false
 
     static let rotationInterval = 5
 
@@ -326,6 +330,7 @@ class SettingsManager {
             SettingsKey.showPandaUsage: SettingsDefaults.showPandaUsage,
             SettingsKey.showClaudeQuota: SettingsDefaults.showClaudeQuota,
             SettingsKey.showPandaQuota: SettingsDefaults.showPandaQuota,
+            SettingsKey.pandaLauncherPatch: SettingsDefaults.pandaLauncherPatch,
             SettingsKey.rotationInterval: SettingsDefaults.rotationInterval,
             SettingsKey.maxToolHistory: SettingsDefaults.maxToolHistory,
             SettingsKey.showTaskProgress: SettingsDefaults.showTaskProgress,

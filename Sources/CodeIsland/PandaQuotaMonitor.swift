@@ -135,12 +135,39 @@ public enum PandaQuotaClient {
     }
 }
 
-/// Drives a short-lived Panda Desktop clone over CDP to run its own
-/// `quotaFetch()` — see `PandaQuotaMonitor` for the rationale.
+/// Drives `window.pandaDesktop.quotaFetch()` over CDP. Three acquisition
+/// strategies, tried in order:
+///
+/// 1. **Already-running instance**: if the user's live Panda Desktop carries
+///    `--remote-debugging-port` (e.g. via the launcher patch below), connect
+///    to it directly — zero process spawn.
+/// 2. **Short-lived clone**: launch the binary with an isolated profile +
+///    random DevTools port, run the same evaluate, then terminate. Auth
+///    state lives in ~/.panda (profile independent) and the safeStorage key
+///    in the shared Keychain entry, so the clone is logged in without any
+///    user action.
+/// Both end up in `evaluateQuota` on the app's own page target.
 public enum PandaQuotaCDP {
     public static let pandaBinary = "/Applications/Panda 桌面版.app/Contents/MacOS/Panda 桌面版"
+    /// Binary name the launcher patch renames the original to.
+    public static let patchedBinaryName = "Panda 桌面版.bin"
+    /// Port the launcher patch pins.
+    public static let launcherPatchPort = 19222
 
     public static func fetch(timeout: TimeInterval = 45) async throws -> PandaQuotaSnapshot {
+        // 1. Live instance with a debug port — connect straight to it.
+        if let port = PandaProcessScanner.findRunningDebugPort() {
+            do {
+                let deadline = Date().addingTimeInterval(15)
+                let wsURL = try await waitForPageTarget(port: port, deadline: deadline)
+                return try await evaluateQuota(wsURL: wsURL, deadline: deadline)
+            } catch {
+                // Fall through to the clone path — the live instance may be
+                // mid-restart or the port stale.
+            }
+        }
+
+        // 2. Short-lived clone with an isolated profile.
         guard FileManager.default.isExecutableFile(atPath: pandaBinary) else {
             throw PandaQuotaError.pandaNotFound
         }
@@ -283,6 +310,115 @@ public enum PandaQuotaError: LocalizedError, Equatable {
         case .pandaNotFound: return "未找到 Panda 桌面版（/Applications/Panda 桌面版.app）"
         case .cdpTimeout: return "Panda 套餐查询超时"
         case .cdpProtocol(let message): return "Panda 套餐查询失败：\(message)"
+        }
+    }
+}
+
+/// Finds a DevTools port on an already-running Panda Desktop process.
+/// The command line is public information (KERN_PROCARGS2 is readable for
+/// same-user processes), so this costs no special entitlements.
+public enum PandaProcessScanner {
+    /// Scans `ps` output for the Panda main process and its
+    /// `--remote-debugging-port=N` argument. Returns the first hit.
+    public static func findRunningDebugPort() -> Int? {
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/bin/ps")
+        proc.arguments = ["-axo", "command="]
+        let pipe = Pipe()
+        proc.standardOutput = pipe
+        proc.standardError = FileHandle.nullDevice
+        do { try proc.run() } catch { return nil }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        proc.waitUntilExit()
+
+        guard let text = String(data: data, encoding: .utf8) else { return nil }
+        for line in text.split(separator: "\n") {
+            // Only the app's own main binary — helpers don't carry the flag.
+            guard line.contains("Panda 桌面版.app/Contents/MacOS"),
+                  !line.contains("--type=") else { continue }
+            if let range = line.range(of: #"--remote-debugging-port=(\d+)"#,
+                                      options: .regularExpression) {
+                let digits = line[range].dropFirst("--remote-debugging-port=".count)
+                if let port = Int(digits), port > 0 { return port }
+            }
+        }
+        return nil
+    }
+}
+
+/// One-time launcher patch: renames Panda's real binary to
+/// `<name>.bin` and drops a small script in its place that re-execs it with
+/// `--remote-debugging-port` pinned. After the patch, every Panda launch —
+/// login item, Dock, `open -a` — carries a DevTools port, so quota queries
+/// attach to the live instance and never spawn a clone.
+///
+/// A Panda update rewrites the bundle and un-does the patch; `isApplied`
+/// detects that and the setting can simply be re-toggled.
+public enum PandaLauncherPatch {
+    private static let appMacOSDir = "/Applications/Panda 桌面版.app/Contents/MacOS"
+    private static var binaryPath: String { appMacOSDir + "/Panda 桌面版" }
+    private static var binPath: String { appMacOSDir + "/" + PandaQuotaCDP.patchedBinaryName }
+    private static var launcherPath: String { appMacOSDir + "/Panda 桌面版" }
+
+    public static var isAvailable: Bool {
+        FileManager.default.isExecutableFile(atPath: binPath)
+            || FileManager.default.isExecutableFile(atPath: binaryPath)
+    }
+
+    /// Patched when the launcher script exists AND the renamed binary exists.
+    public static var isApplied: Bool {
+        guard let kind = try? FileManager.default.attributesOfItem(atPath: launcherPath)[.type] as? FileAttributeType,
+              kind == .typeRegular
+        else { return false }
+        // A patched launcher is a small text file; the original binary is Mach-O.
+        if let data = FileManager.default.contents(atPath: launcherPath),
+           let head = String(data: data.prefix(2), encoding: .utf8) {
+            return head == "#!" && FileManager.default.isExecutableFile(atPath: binPath)
+        }
+        return false
+    }
+
+    @discardableResult
+    public static func apply() -> Bool {
+        let fm = FileManager.default
+        guard fm.isExecutableFile(atPath: binaryPath) else { return false }
+        guard !isApplied else { return true }
+        // Recover from a half-applied state before renaming.
+        if fm.fileExists(atPath: launcherPath), !fm.isExecutableFile(atPath: binPath) {
+            // launcherPath is the real binary again (update overwrote us).
+        }
+        do {
+            if fm.fileExists(atPath: binPath) { try fm.removeItem(atPath: binPath) }
+            try fm.moveItem(atPath: binaryPath, toPath: binPath)
+        } catch {
+            return false
+        }
+        let script = """
+        #!/bin/bash
+        # CodeIsland launcher patch — re-execs the real Panda binary with a
+        # DevTools port so quota queries attach to the running instance.
+        DIR="$(cd "$(dirname "$0")" && pwd)"
+        exec "$DIR/\(PandaQuotaCDP.patchedBinaryName)" --remote-debugging-port=\(PandaQuotaCDP.launcherPatchPort) "$@"
+        """
+        guard fm.createFile(atPath: launcherPath, contents: Data(script.utf8),
+                            attributes: [.posixPermissions: 0o755]) else {
+            // Roll the rename back — never leave the app without its binary.
+            try? fm.moveItem(atPath: binPath, toPath: binaryPath)
+            return false
+        }
+        return true
+    }
+
+    @discardableResult
+    public static func remove() -> Bool {
+        let fm = FileManager.default
+        guard fm.isExecutableFile(atPath: binPath) else { return true }
+        do {
+            if fm.fileExists(atPath: launcherPath) { try fm.removeItem(atPath: launcherPath) }
+            try fm.moveItem(atPath: binPath, toPath: binaryPath)
+            return true
+        } catch {
+            return false
         }
     }
 }
