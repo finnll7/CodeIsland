@@ -1267,6 +1267,7 @@ private struct AppearancePage: View {
     @AppStorage(SettingsKey.showModelLabel) private var showModelLabel = SettingsDefaults.showModelLabel
     @AppStorage(SettingsKey.showProjectName) private var showProjectName = SettingsDefaults.showProjectName
     @AppStorage(SettingsKey.showUsageStats) private var showUsageStats = SettingsDefaults.showUsageStats
+    @AppStorage(SettingsKey.showPandaUsage) private var showPandaUsage = SettingsDefaults.showPandaUsage
     @AppStorage(SettingsKey.showClaudeQuota) private var showClaudeQuota = SettingsDefaults.showClaudeQuota
     @AppStorage(SettingsKey.collapsedWidthScale) private var collapsedWidthScale = SettingsDefaults.collapsedWidthScale
     @AppStorage(SettingsKey.notchHeightMode) private var notchHeightModeRaw = SettingsDefaults.notchHeightMode
@@ -1422,6 +1423,12 @@ private struct AppearancePage: View {
                         .foregroundStyle(.tertiary)
                 }
                 VStack(alignment: .leading, spacing: 2) {
+                    Toggle(l10n["show_panda_usage"], isOn: $showPandaUsage)
+                    Text(l10n["show_panda_usage_desc"])
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                }
+                VStack(alignment: .leading, spacing: 2) {
                     Toggle(l10n["show_claude_quota"], isOn: $showClaudeQuota)
                     Text(l10n["show_claude_quota_desc"])
                         .font(.system(size: 11))
@@ -1565,6 +1572,7 @@ private struct MascotsPage: View {
         ("Gemini", "google-antigravity", "Google Antigravity", Color(red: 0.278, green: 0.588, blue: 0.894)),
         ("AiWorkBot", "aiwork", "AiWork", Color(red: 0.12, green: 0.72, blue: 0.28)),
         ("AiWorkBot", "aiwork-cli", "AiWork CLI", Color(red: 0.12, green: 0.55, blue: 0.90)),
+        ("Panda", "panda", "Panda Code", Color(red: 0.95, green: 0.95, blue: 0.95)),
     ]
 
     var body: some View {

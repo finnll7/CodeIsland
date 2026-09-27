@@ -17,12 +17,32 @@ import Foundation
 ///    per-message rows — so totals MUST dedupe on `turnId`, keeping the value
 ///    from the LAST occurrence (in-flight turns report partial token counts
 ///    that only settle when the turn completes).
+///
+/// Aggregation window is one CALENDAR WEEK: Monday 00:00:00 local time through
+/// Sunday 24:00. Every turn that started within the current week counts into a
+/// single weekly total, and the per-day sparkline buckets by natural day
+/// (index 0 = Monday … index 6 = Sunday).
 public enum PandaUsageScanner {
-    /// Sparkline resolution: one bucket per hour, oldest first. Same shape as
-    /// the Claude scanner so the footer UI can render either.
-    public static let sparklineHours = ClaudeUsageScanner.sparklineHours
+    /// One sparkline bucket per natural day of the week, Monday first.
+    public static let daysPerWeek = 7
 
-    public typealias Snapshot = ClaudeUsageScanner.Snapshot
+    public struct Snapshot: Equatable, Sendable {
+        /// All turns that started since Monday 00:00:00 local time.
+        public let thisWeek: ClaudeUsageTotals
+        /// Output tokens per natural day, index 0 = Monday … 6 = Sunday.
+        /// Future days stay 0.
+        public let dailyOutputTokens: [Int]
+        /// Monday 00:00:00 local time of the week `scannedAt` falls in.
+        public let weekStart: Date
+        public let scannedAt: Date
+
+        public init(thisWeek: ClaudeUsageTotals, dailyOutputTokens: [Int], weekStart: Date, scannedAt: Date) {
+            self.thisWeek = thisWeek
+            self.dailyOutputTokens = dailyOutputTokens
+            self.weekStart = weekStart
+            self.scannedAt = scannedAt
+        }
+    }
 
     /// Per-file incremental parse state. Transcripts are append-only (each
     /// turnMetrics line re-states the full snapshot, older lines never change),
@@ -39,6 +59,18 @@ public enum PandaUsageScanner {
         public init() {}
     }
 
+    /// Monday 00:00:00 local time of the week `date` falls in. Computed from
+    /// the weekday index directly — NOT `Calendar.firstWeekday`, which follows
+    /// the user's locale (Sunday in en_US) while the requirement here is a
+    /// fixed Monday-start week.
+    public static func weekStart(for date: Date, calendar: Calendar = .current) -> Date {
+        let day = calendar.startOfDay(for: date)
+        // weekday: 1 = Sunday … 7 = Saturday → days since Monday.
+        let weekday = calendar.component(.weekday, from: day)
+        let daysSinceMonday = (weekday + 5) % 7
+        return calendar.date(byAdding: .day, value: -daysSinceMonday, to: day) ?? day
+    }
+
     /// One-shot convenience (tests, callers without persistent state).
     public static func scan(
         pandaHome: String = NSHomeDirectory() + "/.panda",
@@ -53,14 +85,11 @@ public enum PandaUsageScanner {
         now: Date = Date(),
         cache: inout FileCache
     ) -> Snapshot {
-        let fiveHoursAgo = now.addingTimeInterval(-5 * 3600)
-        let midnight = Calendar.current.startOfDay(for: now)
-        let sparklineStart = now.addingTimeInterval(-Double(sparklineHours) * 3600)
-        let cutoff = min(fiveHoursAgo, midnight, sparklineStart)
+        let monday = weekStart(for: now)
+        let cutoff = monday
 
-        var last5h = ClaudeUsageTotals()
-        var today = ClaudeUsageTotals()
-        var hourly = [Int](repeating: 0, count: sparklineHours)
+        var thisWeek = ClaudeUsageTotals()
+        var daily = [Int](repeating: 0, count: daysPerWeek)
         var activeFiles = Set<String>()
 
         let fm = FileManager.default
@@ -88,19 +117,26 @@ public enum PandaUsageScanner {
                 }
                 cache.files[path] = entry
 
-                for (_, turn) in entry.turns where turn.timestamp <= now {
-                    if turn.timestamp >= fiveHoursAgo { last5h.add(turn.usage) }
-                    if turn.timestamp >= midnight { today.add(turn.usage) }
-                    let hoursAgo = Int(now.timeIntervalSince(turn.timestamp) / 3600)
-                    if hoursAgo >= 0 && hoursAgo < sparklineHours {
-                        hourly[sparklineHours - 1 - hoursAgo] += turn.usage.outputTokens
+                for (_, turn) in entry.turns where turn.timestamp > monday && turn.timestamp <= now {
+                    thisWeek.add(turn.usage)
+                    let dayIndex = calendarDayOffset(from: monday, to: turn.timestamp)
+                    if dayIndex >= 0 && dayIndex < daysPerWeek {
+                        daily[dayIndex] += turn.usage.outputTokens
                     }
                 }
             }
         }
         // Files that fell out of the mtime window carry no in-window turns.
         cache.files = cache.files.filter { activeFiles.contains($0.key) }
-        return Snapshot(last5h: last5h, today: today, hourlyOutputTokens: hourly, scannedAt: now)
+        return Snapshot(thisWeek: thisWeek, dailyOutputTokens: daily, weekStart: monday, scannedAt: now)
+    }
+
+    /// Whole-day offset between two dates in the same week (0 = Monday).
+    /// Uses startOfDay arithmetic so DST shifts cannot off-by-one a bucket.
+    private static func calendarDayOffset(from weekStart: Date, to date: Date, calendar: Calendar = .current) -> Int {
+        let from = calendar.startOfDay(for: weekStart)
+        let to = calendar.startOfDay(for: date)
+        return calendar.dateComponents([.day], from: from, to: to).day ?? 0
     }
 
     /// Read bytes past `entry.consumedBytes` and parse the COMPLETE lines only —

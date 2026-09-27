@@ -274,10 +274,22 @@ private enum ReadmeDemo {
         today.outputTokens = 233_000
         today.cacheReadTokens = 29_600_000
         today.messageCount = 388
-        state.pandaUsage = ClaudeUsageScanner.Snapshot(
+        state.claudeUsage = ClaudeUsageScanner.Snapshot(
             last5h: fiveHours,
             today: today,
             hourlyOutputTokens: [0, 3_100, 14_800, 9_200, 0, 0, 18_400, 36_500, 22_900, 12_300, 41_800, 27_600],
+            scannedAt: Date()
+        )
+        var pandaWeek = ClaudeUsageTotals()
+        pandaWeek.inputTokens = 402_000
+        pandaWeek.cacheCreationTokens = 486_000
+        pandaWeek.outputTokens = 187_300
+        pandaWeek.cacheReadTokens = 24_900_000
+        pandaWeek.messageCount = 356
+        state.pandaUsage = PandaUsageScanner.Snapshot(
+            thisWeek: pandaWeek,
+            dailyOutputTokens: [8_400, 26_100, 19_500, 0, 33_800, 0, 0],
+            weekStart: PandaUsageScanner.weekStart(for: Date()),
             scannedAt: Date()
         )
         state.surface = .sessionList

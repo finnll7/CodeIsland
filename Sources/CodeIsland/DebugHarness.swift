@@ -223,10 +223,22 @@ enum DebugHarness {
         today.cacheCreationTokens = 512_000
         today.cacheReadTokens = 30_100_000
         today.messageCount = 402
-        state.pandaUsage = ClaudeUsageScanner.Snapshot(
+        state.claudeUsage = ClaudeUsageScanner.Snapshot(
             last5h: fiveH,
             today: today,
             hourlyOutputTokens: [0, 0, 4200, 18_000, 9500, 0, 22_000, 41_000, 12_000, 30_500, 52_000, 17_500],
+            scannedAt: Date()
+        )
+        var pandaWeek = ClaudeUsageTotals()
+        pandaWeek.inputTokens = 320_000
+        pandaWeek.outputTokens = 141_000
+        pandaWeek.cacheCreationTokens = 388_000
+        pandaWeek.cacheReadTokens = 21_600_000
+        pandaWeek.messageCount = 264
+        state.pandaUsage = PandaUsageScanner.Snapshot(
+            thisWeek: pandaWeek,
+            dailyOutputTokens: [12_000, 31_400, 0, 22_800, 41_000, 0, 0],
+            weekStart: PandaUsageScanner.weekStart(for: Date()),
             scannedAt: Date()
         )
         state.claudeQuota.applyPreview(ClaudeQuotaSnapshot(

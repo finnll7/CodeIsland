@@ -29,15 +29,40 @@ final class PandaUsageScannerTests: XCTestCase {
         return #"{"type":"session_meta","field":"turnMetrics","value":[\#(entries)],"updatedAt":0}"#
     }
 
-    /// Noon local time keeps "1h ago" and "8h ago" unambiguously on today's
-    /// date regardless of when the test runs.
-    private var noon: Date {
-        Calendar.current.date(bySettingHour: 12, minute: 0, second: 0, of: Date())!
+    private var calendar: Calendar { Calendar.current }
+
+    /// Wednesday noon of the current week — unambiguously inside the week and
+    /// on today's date regardless of when the test runs.
+    private var wednesdayNoon: Date {
+        let today = calendar.startOfDay(for: Date())
+        let weekday = calendar.component(.weekday, from: today)
+        let daysSinceMonday = (weekday + 5) % 7
+        let monday = calendar.date(byAdding: .day, value: -daysSinceMonday, to: today)!
+        return calendar.date(bySettingHour: 12, minute: 0, second: 0, of: monday.addingTimeInterval(2 * 86_400))!
+    }
+
+    func testWeekStartIsAlwaysMonday() {
+        // Walk a full week from a known Wednesday; every day must map back to
+        // the same Monday 00:00 regardless of the user's firstWeekday setting.
+        let wednesday = wednesdayNoon
+        let monday = PandaUsageScanner.weekStart(for: wednesday)
+        XCTAssertEqual(calendar.component(.weekday, from: monday), 2) // Monday
+        XCTAssertEqual(monday, calendar.startOfDay(for: monday))
+
+        for offset in 0..<7 {
+            let day = calendar.date(byAdding: .day, value: offset, to: monday)!
+            XCTAssertEqual(PandaUsageScanner.weekStart(for: day), monday,
+                           "day +\(offset) of the week must map back to the same Monday")
+        }
+        // The day before Monday belongs to the previous week.
+        let sunday = calendar.date(byAdding: .day, value: -1, to: monday)!
+        XCTAssertEqual(PandaUsageScanner.weekStart(for: sunday),
+                       calendar.date(byAdding: .day, value: -7, to: monday)!)
     }
 
     func testParseTurnMetricsLine() {
         let line = turnMetricsLine(turns: [
-            (id: "t1", startedAt: noon, prompt: 10, completion: 20, cached: 100, cacheWrite: 5),
+            (id: "t1", startedAt: wednesdayNoon, prompt: 10, completion: 20, cached: 100, cacheWrite: 5),
         ])
         let parsed = PandaUsageScanner.parseTurnMetrics(line)
         XCTAssertEqual(parsed.count, 1)
@@ -51,17 +76,20 @@ final class PandaUsageScannerTests: XCTestCase {
         XCTAssertTrue(PandaUsageScanner.parseTurnMetrics("not json").isEmpty)
     }
 
-    func testScanAggregatesWindowsAndDedupesOnTurnId() throws {
-        let now = noon
+    func testScanAggregatesWeekAndDedupesOnTurnId() throws {
+        let now = wednesdayNoon
+        let monday = PandaUsageScanner.weekStart(for: now)
         let path = home + "/projects/p1/sessions/s.jsonl"
         // Panda re-emits a FULL snapshot per line: turn t1 appears on three
-        // lines (its counts settle only on the last), then an older turn.
+        // lines (its counts settle only on the last), then an older turn from
+        // earlier in the SAME week (Tuesday).
+        let tuesday = calendar.date(byAdding: .day, value: 1, to: monday)!
         let lines = [
             turnMetricsLine(turns: [(id: "t1", startedAt: now.addingTimeInterval(-3600), prompt: 1, completion: 1, cached: 0, cacheWrite: 0)]),
             turnMetricsLine(turns: [(id: "t1", startedAt: now.addingTimeInterval(-3600), prompt: 50, completion: 5, cached: 0, cacheWrite: 0)]),
             turnMetricsLine(turns: [
                 (id: "t1", startedAt: now.addingTimeInterval(-3600), prompt: 100, completion: 10, cached: 0, cacheWrite: 0),
-                (id: "t2", startedAt: now.addingTimeInterval(-8 * 3600), prompt: 1000, completion: 50, cached: 0, cacheWrite: 0),
+                (id: "t2", startedAt: tuesday, prompt: 1000, completion: 50, cached: 0, cacheWrite: 0),
             ]),
         ]
         try lines.joined(separator: "\n").appending("\n")
@@ -70,29 +98,42 @@ final class PandaUsageScannerTests: XCTestCase {
         let snap = PandaUsageScanner.scan(pandaHome: home, now: now)
 
         // t1 counted ONCE with the LAST snapshot's values, not 3×.
-        XCTAssertEqual(snap.last5h.inputTokens, 100)
-        XCTAssertEqual(snap.last5h.outputTokens, 10)
-        XCTAssertEqual(snap.last5h.messageCount, 1)
-        // t2 is today but outside the 5h window.
-        XCTAssertEqual(snap.today.inputTokens, 1100)
-        XCTAssertEqual(snap.today.outputTokens, 60)
-        XCTAssertEqual(snap.today.messageCount, 2)
+        XCTAssertEqual(snap.thisWeek.inputTokens, 1100)
+        XCTAssertEqual(snap.thisWeek.outputTokens, 60)
+        XCTAssertEqual(snap.thisWeek.messageCount, 2)
+        XCTAssertEqual(snap.weekStart, monday)
 
-        let last = PandaUsageScanner.sparklineHours - 1
-        XCTAssertEqual(snap.hourlyOutputTokens[last - 1], 10)
-        XCTAssertEqual(snap.hourlyOutputTokens[last - 8], 50)
-        XCTAssertEqual(snap.hourlyOutputTokens.reduce(0, +), 60)
+        // Daily buckets: Wednesday (index 2) = t1's 10 out; Tuesday (1) = 50.
+        XCTAssertEqual(snap.dailyOutputTokens[2], 10)
+        XCTAssertEqual(snap.dailyOutputTokens[1], 50)
+        XCTAssertEqual(snap.dailyOutputTokens.reduce(0, +), 60)
+    }
+
+    func testScanExcludesLastWeeksTurns() throws {
+        let now = wednesdayNoon
+        let monday = PandaUsageScanner.weekStart(for: now)
+        let lastWeek = calendar.date(byAdding: .day, value: -3, to: monday)! // Friday last week
+        let path = home + "/projects/p1/sessions/s.jsonl"
+        try (turnMetricsLine(turns: [
+            (id: "old", startedAt: lastWeek, prompt: 5000, completion: 900, cached: 0, cacheWrite: 0),
+            (id: "new", startedAt: now.addingTimeInterval(-600), prompt: 10, completion: 2, cached: 0, cacheWrite: 0),
+        ]) + "\n")
+            .write(toFile: path, atomically: true, encoding: .utf8)
+
+        let snap = PandaUsageScanner.scan(pandaHome: home, now: now)
+        XCTAssertEqual(snap.thisWeek.inputTokens, 10)
+        XCTAssertEqual(snap.thisWeek.messageCount, 1)
     }
 
     func testIncrementalScanReadsOnlyAppendedBytes() throws {
-        let now = noon
+        let now = wednesdayNoon
         let path = home + "/projects/p1/sessions/s.jsonl"
         try (turnMetricsLine(turns: [(id: "a", startedAt: now.addingTimeInterval(-3600), prompt: 100, completion: 10, cached: 0, cacheWrite: 0)]) + "\n")
             .write(toFile: path, atomically: true, encoding: .utf8)
 
         var cache = PandaUsageScanner.FileCache()
         let first = PandaUsageScanner.scan(pandaHome: home, now: now, cache: &cache)
-        XCTAssertEqual(first.last5h.inputTokens, 100)
+        XCTAssertEqual(first.thisWeek.inputTokens, 100)
         let consumedAfterFirst = try XCTUnwrap(cache.files[path]?.consumedBytes)
         XCTAssertGreaterThan(consumedAfterFirst, 0)
 
@@ -106,13 +147,13 @@ final class PandaUsageScannerTests: XCTestCase {
         handle.closeFile()
 
         let second = PandaUsageScanner.scan(pandaHome: home, now: now, cache: &cache)
-        XCTAssertEqual(second.last5h.inputTokens, 107)
-        XCTAssertEqual(second.last5h.messageCount, 2)
+        XCTAssertEqual(second.thisWeek.inputTokens, 107)
+        XCTAssertEqual(second.thisWeek.messageCount, 2)
         XCTAssertGreaterThan(try XCTUnwrap(cache.files[path]?.consumedBytes), consumedAfterFirst)
     }
 
     func testIncrementalScanIgnoresPartialTrailingLine() throws {
-        let now = noon
+        let now = wednesdayNoon
         let path = home + "/projects/p1/sessions/s.jsonl"
         let full = turnMetricsLine(turns: [(id: "a", startedAt: now.addingTimeInterval(-3600), prompt: 100, completion: 10, cached: 0, cacheWrite: 0)]) + "\n"
         let partial = #"{"type":"session_meta","field":"turnMe"#
@@ -120,12 +161,12 @@ final class PandaUsageScannerTests: XCTestCase {
 
         var cache = PandaUsageScanner.FileCache()
         let snap = PandaUsageScanner.scan(pandaHome: home, now: now, cache: &cache)
-        XCTAssertEqual(snap.last5h.messageCount, 1)
+        XCTAssertEqual(snap.thisWeek.messageCount, 1)
         XCTAssertEqual(cache.files[path]?.consumedBytes, UInt64(full.utf8.count))
     }
 
     func testTruncatedFileIsRescannedFromStart() throws {
-        let now = noon
+        let now = wednesdayNoon
         let path = home + "/projects/p1/sessions/s.jsonl"
         try (turnMetricsLine(turns: [(id: "a", startedAt: now.addingTimeInterval(-3600), prompt: 100, completion: 10, cached: 0, cacheWrite: 0)]) + "\n"
              + turnMetricsLine(turns: [(id: "b", startedAt: now.addingTimeInterval(-1800), prompt: 50, completion: 5, cached: 0, cacheWrite: 0)]) + "\n")
@@ -138,13 +179,13 @@ final class PandaUsageScannerTests: XCTestCase {
             .write(toFile: path, atomically: true, encoding: .utf8)
 
         let snap = PandaUsageScanner.scan(pandaHome: home, now: now, cache: &cache)
-        XCTAssertEqual(snap.last5h.inputTokens, 1)
-        XCTAssertEqual(snap.last5h.messageCount, 1)
+        XCTAssertEqual(snap.thisWeek.inputTokens, 1)
+        XCTAssertEqual(snap.thisWeek.messageCount, 1)
     }
 
     func testScanEmptyHome() {
-        let snap = PandaUsageScanner.scan(pandaHome: home + "/nonexistent", now: noon)
-        XCTAssertTrue(snap.last5h.isEmpty)
-        XCTAssertTrue(snap.today.isEmpty)
+        let snap = PandaUsageScanner.scan(pandaHome: home + "/nonexistent", now: wednesdayNoon)
+        XCTAssertTrue(snap.thisWeek.isEmpty)
+        XCTAssertEqual(snap.dailyOutputTokens, [Int](repeating: 0, count: PandaUsageScanner.daysPerWeek))
     }
 }

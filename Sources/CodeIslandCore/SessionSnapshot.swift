@@ -4,6 +4,7 @@ public enum SessionTitleSource: String, Sendable, Codable {
     case codexThreadName
     case claudeCustomTitle
     case claudeAiTitle
+    case pandaSessionTitle
 }
 
 public struct SessionSnapshot: Sendable {

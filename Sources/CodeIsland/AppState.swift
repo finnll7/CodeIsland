@@ -288,6 +288,7 @@ final class AppState {
                 glanceCompletionActive = false
             }
             if surface.isExpanded {
+                refreshClaudeUsageIfStale()
                 refreshPandaUsageIfStale()
                 claudeQuota.noteExpanded()
             } else {
@@ -330,8 +331,12 @@ final class AppState {
     }
 
     /// Local-transcript token usage shown in the session-list footer.
-    /// Refreshed lazily on panel expansion (no resident timer, no API calls).
-    var pandaUsage: ClaudeUsageScanner.Snapshot?
+    /// Claude: refreshed lazily on panel expansion (no resident timer, no API calls).
+    var claudeUsage: ClaudeUsageScanner.Snapshot?
+    /// Local Panda Code transcript usage (calendar-week window), same footer.
+    /// Also force-refreshed after every Stop event so the weekly total keeps up
+    /// without waiting for a panel expansion.
+    var pandaUsage: PandaUsageScanner.Snapshot?
     /// Subscription rate limits (5h / weekly) from Anthropic — opt-in, network.
     let claudeQuota = ClaudeQuotaMonitor()
     /// Process-wide, not per-instance: the scan reads one shared history
@@ -341,9 +346,11 @@ final class AppState {
     /// `.utility` cooperative pool and starves every other detached probe on it
     /// (git-branch resolution among them).
     private static var usageScanInFlight = false
+    private static var pandaUsageScanInFlight = false
     /// Incremental parse state — round-trips through each detached scan so
     /// growing transcripts are only read past their last consumed offset.
-    private var usageFileCache = PandaUsageScanner.FileCache()
+    private var usageFileCache = ClaudeUsageScanner.FileCache()
+    private var pandaUsageFileCache = PandaUsageScanner.FileCache()
 
     /// Glance completion mode: an agent finished while the pill was collapsed —
     /// light the dot instead of expanding. Cleared when the user expands the
@@ -1259,22 +1266,46 @@ final class AppState {
 
     /// Prewarm at launch so the footer doesn't pop in (and shift panel height)
     /// on the first expansion.
-    func refreshPandaUsageIfStale() {
+    func refreshClaudeUsageIfStale() {
         guard UserDefaults.standard.bool(forKey: SettingsKey.showUsageStats) else { return }
         guard !Self.usageScanInFlight else { return }
-        if let scannedAt = pandaUsage?.scannedAt, Date().timeIntervalSince(scannedAt) < 120 { return }
+        if let scannedAt = claudeUsage?.scannedAt, Date().timeIntervalSince(scannedAt) < 120 { return }
         Self.usageScanInFlight = true
         let cacheCopy = usageFileCache
         Task.detached(priority: .utility) {
             var cache = cacheCopy
-            let snapshot = PandaUsageScanner.scan(cache: &cache)
+            let snapshot = ClaudeUsageScanner.scan(claudeHomes: ClaudeConfigPaths.allConfigDirs(), cache: &cache)
             // Bound to a `let` before the hop: capturing the `var` in the
             // concurrently-executing closure is an error under Swift 6.
             let scannedCache = cache
             await MainActor.run { [weak self] in
-                self?.pandaUsage = snapshot
+                self?.claudeUsage = snapshot
                 self?.usageFileCache = scannedCache
                 AppState.usageScanInFlight = false
+            }
+        }
+    }
+
+    /// Panda weekly usage. `force` bypasses the 120 s throttle — used after a
+    /// Stop event so the footer's weekly total reflects the turn that just
+    /// finished. The incremental file cache keeps a forced rescan cheap (only
+    /// bytes appended since the last scan are parsed).
+    func refreshPandaUsageIfStale(force: Bool = false) {
+        guard UserDefaults.standard.bool(forKey: SettingsKey.showPandaUsage) else { return }
+        guard !Self.pandaUsageScanInFlight else { return }
+        if !force,
+           let scannedAt = pandaUsage?.scannedAt,
+           Date().timeIntervalSince(scannedAt) < 120 { return }
+        Self.pandaUsageScanInFlight = true
+        let cacheCopy = pandaUsageFileCache
+        Task.detached(priority: .utility) {
+            var cache = cacheCopy
+            let snapshot = PandaUsageScanner.scan(cache: &cache)
+            let scannedCache = cache
+            await MainActor.run { [weak self] in
+                self?.pandaUsage = snapshot
+                self?.pandaUsageFileCache = scannedCache
+                AppState.pandaUsageScanInFlight = false
             }
         }
     }
@@ -1707,6 +1738,13 @@ final class AppState {
         if normalizedEventName == "Stop",
            let s = sessions[sessionId], s.isClaude, s.isRemote != true {
             claudeQuota.noteStop()
+        }
+
+        // A finished turn (any CLI) is a natural moment to refresh the Panda
+        // weekly usage — the incremental scan makes this nearly free, and the
+        // footer's week total then never lags behind the last completed task.
+        if normalizedEventName == "Stop" {
+            refreshPandaUsageIfStale(force: true)
         }
 
         // Backfill model after metadata extraction. Hooks are inconsistent across providers,

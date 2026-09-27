@@ -84,6 +84,9 @@ enum SettingsKey {
     // Token-usage footer (local Claude transcript aggregation)
     static let showUsageStats = "showUsageStats"
 
+    // Token-usage footer, Panda Code line (local ~/.panda transcripts, weekly)
+    static let showPandaUsage = "showPandaUsage"
+
     // Claude plan limits (Anthropic usage endpoint via the Claude Code login)
     static let showClaudeQuota = "showClaudeQuota"
 
@@ -211,6 +214,7 @@ struct SettingsDefaults {
     static let showSessionRecap = true
     static let showModelLabel = false
     static let showUsageStats = true
+    static let showPandaUsage = true
     static let showClaudeQuota = false
 
     static let rotationInterval = 5
@@ -313,6 +317,7 @@ class SettingsManager {
             SettingsKey.showSessionRecap: SettingsDefaults.showSessionRecap,
             SettingsKey.showModelLabel: SettingsDefaults.showModelLabel,
             SettingsKey.showUsageStats: SettingsDefaults.showUsageStats,
+            SettingsKey.showPandaUsage: SettingsDefaults.showPandaUsage,
             SettingsKey.showClaudeQuota: SettingsDefaults.showClaudeQuota,
             SettingsKey.rotationInterval: SettingsDefaults.rotationInterval,
             SettingsKey.maxToolHistory: SettingsDefaults.maxToolHistory,
