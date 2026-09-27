@@ -288,7 +288,7 @@ final class AppState {
                 glanceCompletionActive = false
             }
             if surface.isExpanded {
-                refreshClaudeUsageIfStale()
+                refreshPandaUsageIfStale()
                 claudeQuota.noteExpanded()
             } else {
                 claudeQuota.noteCollapsed()
@@ -331,7 +331,7 @@ final class AppState {
 
     /// Local-transcript token usage shown in the session-list footer.
     /// Refreshed lazily on panel expansion (no resident timer, no API calls).
-    var claudeUsage: ClaudeUsageScanner.Snapshot?
+    var pandaUsage: ClaudeUsageScanner.Snapshot?
     /// Subscription rate limits (5h / weekly) from Anthropic — opt-in, network.
     let claudeQuota = ClaudeQuotaMonitor()
     /// Process-wide, not per-instance: the scan reads one shared history
@@ -343,7 +343,7 @@ final class AppState {
     private static var usageScanInFlight = false
     /// Incremental parse state — round-trips through each detached scan so
     /// growing transcripts are only read past their last consumed offset.
-    private var usageFileCache = ClaudeUsageScanner.FileCache()
+    private var usageFileCache = PandaUsageScanner.FileCache()
 
     /// Glance completion mode: an agent finished while the pill was collapsed —
     /// light the dot instead of expanding. Cleared when the user expands the
@@ -1259,20 +1259,20 @@ final class AppState {
 
     /// Prewarm at launch so the footer doesn't pop in (and shift panel height)
     /// on the first expansion.
-    func refreshClaudeUsageIfStale() {
+    func refreshPandaUsageIfStale() {
         guard UserDefaults.standard.bool(forKey: SettingsKey.showUsageStats) else { return }
         guard !Self.usageScanInFlight else { return }
-        if let scannedAt = claudeUsage?.scannedAt, Date().timeIntervalSince(scannedAt) < 120 { return }
+        if let scannedAt = pandaUsage?.scannedAt, Date().timeIntervalSince(scannedAt) < 120 { return }
         Self.usageScanInFlight = true
         let cacheCopy = usageFileCache
         Task.detached(priority: .utility) {
             var cache = cacheCopy
-            let snapshot = ClaudeUsageScanner.scan(claudeHomes: ClaudeConfigPaths.allConfigDirs(), cache: &cache)
+            let snapshot = PandaUsageScanner.scan(cache: &cache)
             // Bound to a `let` before the hop: capturing the `var` in the
             // concurrently-executing closure is an error under Swift 6.
             let scannedCache = cache
             await MainActor.run { [weak self] in
-                self?.claudeUsage = snapshot
+                self?.pandaUsage = snapshot
                 self?.usageFileCache = scannedCache
                 AppState.usageScanInFlight = false
             }

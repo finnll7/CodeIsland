@@ -39,7 +39,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // then shows data immediately instead of popping in a beat later.
         Task { @MainActor [weak appState] in
             try? await Task.sleep(nanoseconds: 5_000_000_000)
-            appState?.refreshClaudeUsageIfStale()
+            appState?.refreshPandaUsageIfStale()
         }
 
         // Hook installation does subprocess version detection plus disk I/O —

@@ -223,7 +223,7 @@ enum DebugHarness {
         today.cacheCreationTokens = 512_000
         today.cacheReadTokens = 30_100_000
         today.messageCount = 402
-        state.claudeUsage = ClaudeUsageScanner.Snapshot(
+        state.pandaUsage = ClaudeUsageScanner.Snapshot(
             last5h: fiveH,
             today: today,
             hourlyOutputTokens: [0, 0, 4200, 18_000, 9500, 0, 22_000, 41_000, 12_000, 30_500, 52_000, 17_500],

@@ -2175,7 +2175,7 @@ private struct SessionListView: View {
 
             // Full session list only — the completion card stays focused on
             // the finished session.
-            if showUsageStats, onlySessionId == nil, let usage = appState.claudeUsage,
+            if showUsageStats, onlySessionId == nil, let usage = appState.pandaUsage,
                !(usage.last5h.isEmpty && usage.today.isEmpty) {
                 UsageFooterLine(usage: usage)
             }
@@ -2309,8 +2309,8 @@ private struct QuotaFooterMessage: View {
     }
 }
 
-/// Token totals from the local Claude transcripts — "in" is billed input
-/// (input + cache writes); cache reads live in the tooltip.
+/// Token totals from the local Panda Code transcripts — "in" is billed input
+/// (prompt + cache writes); cache reads live in the tooltip.
 private struct UsageFooterLine: View {
     let usage: ClaudeUsageScanner.Snapshot
     @ObservedObject private var l10n = L10n.shared
@@ -2319,7 +2319,7 @@ private struct UsageFooterLine: View {
         HStack(spacing: 5) {
             Image(systemName: "gauge.with.needle")
                 .font(.system(size: 9, weight: .semibold))
-            Text("Claude")
+            Text("Panda")
                 .fontWeight(.semibold)
             Text("5h \(compact(usage.last5h))")
             Text("·")

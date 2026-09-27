@@ -274,7 +274,7 @@ private enum ReadmeDemo {
         today.outputTokens = 233_000
         today.cacheReadTokens = 29_600_000
         today.messageCount = 388
-        state.claudeUsage = ClaudeUsageScanner.Snapshot(
+        state.pandaUsage = ClaudeUsageScanner.Snapshot(
             last5h: fiveHours,
             today: today,
             hourlyOutputTokens: [0, 3_100, 14_800, 9_200, 0, 0, 18_400, 36_500, 22_900, 12_300, 41_800, 27_600],
