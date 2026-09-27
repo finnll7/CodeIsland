@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UserNotifications
 import os.log
 import CodeIslandCore
 
@@ -16,6 +17,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     let appState = AppState()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Notification delegate must be set before any banner is posted so
+        // Patch-Guard alerts show while the app is frontmost.
+        UNUserNotificationCenter.current().delegate = PandaPatchNotificationDelegate.shared
         // Read before anything else: the launch Apple Event that says "login
         // item" is only current during this synchronous call.
         let isLoginLaunch = LaunchContext.isCurrentLaunchAtLogin()

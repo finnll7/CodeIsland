@@ -343,6 +343,10 @@ final class AppState {
     let claudeQuota = ClaudeQuotaMonitor()
     /// Panda plan credits (gateway /llm/quota/me) — opt-in, needs a pasted token.
     let pandaQuota = PandaQuotaMonitor()
+    /// Keeps the Panda launcher patch alive: verifies on app launch and on
+    /// every Panda launch, re-applies after Panda updates, notifies on
+    /// non-effective states. No-op unless the patch toggle is on.
+    let pandaPatchGuard = PandaPatchGuard()
     /// Process-wide, not per-instance: the scan reads one shared history
     /// (`~/.claude`), so two concurrent runs are always duplicate work. Production
     /// has a single AppState and never noticed, but anything constructing several —
