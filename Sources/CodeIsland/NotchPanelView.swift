@@ -2182,8 +2182,9 @@ private struct SessionListView: View {
                !(usage.last5h.isEmpty && usage.today.isEmpty) {
                 UsageFooterLine(usage: usage)
             }
-            if showPandaUsage, onlySessionId == nil, let usage = appState.pandaUsage,
-               !usage.thisWeek.isEmpty {
+            // Shown whenever the switch is on and a scan has completed, even at
+            // zero — a hidden row reads as a broken feature.
+            if showPandaUsage, onlySessionId == nil, let usage = appState.pandaUsage {
                 PandaUsageFooterLine(usage: usage)
             }
             if showClaudeQuota, onlySessionId == nil {
@@ -2354,9 +2355,10 @@ private struct PandaQuotaFooterLine: View {
             Text("\(Int(snapshot.usagePercent.rounded()))%")
                 .foregroundStyle(color)
             Spacer()
-            if !snapshot.windowEndLabel.isEmpty {
-                Text("↻\(snapshot.windowEndLabel)")
+            if !snapshot.renewalText.isEmpty {
+                Text(snapshot.renewalText)
                     .foregroundStyle(.white.opacity(0.3))
+                    .lineLimit(1)
             }
         }
         .font(.system(size: 10, weight: .medium, design: .monospaced))
@@ -2371,7 +2373,8 @@ private struct PandaQuotaFooterLine: View {
             "Panda \(snapshot.planLabel)",
             "used \(snapshot.creditsDisplay(snapshot.usedCredits)) · limit \(snapshot.isUnlimited ? "不限" : snapshot.creditsDisplay(snapshot.creditLimit)) · remaining \(snapshot.creditsDisplay(snapshot.remainingCredits))",
         ]
-        if !snapshot.windowEndLabel.isEmpty { lines.append("resets \(snapshot.windowEndLabel)") }
+        if !snapshot.periodText.isEmpty { lines.append("period \(snapshot.periodText)") }
+        if !snapshot.renewalText.isEmpty { lines.append(snapshot.renewalText) }
         return lines.joined(separator: "\n")
     }
 }
