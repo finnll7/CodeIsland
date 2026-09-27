@@ -20,7 +20,9 @@ final class PandaQuotaMonitor {
         self.defaults = defaults
     }
 
-    /// Gateway access token pasted by the user in Settings.
+    /// Gateway access token pasted by the user in Settings. When empty the
+    /// monitor falls back to automatic retrieval from the local Panda state
+    /// (read-only: Keychain + state.db, see `PandaTokenProvider`).
     var token: String {
         let raw = defaults.string(forKey: SettingsKey.pandaGatewayToken) ?? ""
         return raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -30,7 +32,11 @@ final class PandaQuotaMonitor {
         defaults.bool(forKey: SettingsKey.showPandaQuota)
     }
 
-    var isConfigured: Bool { !token.isEmpty }
+    /// A fetch can proceed: either a manual token exists or the local Panda
+    /// auto-retrieval path is plausible (its state db is present).
+    var isConfigured: Bool {
+        !token.isEmpty || PandaTokenProvider.isAutoFetchPlausible
+    }
 
     func noteExpanded() {
         isExpanded = true
@@ -53,14 +59,19 @@ final class PandaQuotaMonitor {
     }
 
     func fetchNow() {
-        guard !inFlight, isConfigured else { return }
+        guard !inFlight, isEnabled, isConfigured else { return }
         inFlight = true
-        let token = self.token
+        let manualToken = self.token
         let baseURL = defaults.string(forKey: SettingsKey.pandaGatewayBaseURL) ?? PandaQuotaClient.defaultBaseURL
         Task { [weak self] in
             let result: Result<PandaQuotaSnapshot, Error>
-            do { result = .success(try await PandaQuotaClient.fetch(token: token, baseURL: baseURL)) }
-            catch { result = .failure(error) }
+            do {
+                // Keychain read + scrypt (16 MB memory) run off the main actor.
+                let resolved = manualToken.isEmpty ? try PandaTokenProvider.fetchToken() : manualToken
+                result = .success(try await PandaQuotaClient.fetch(token: resolved, baseURL: baseURL))
+            } catch {
+                result = .failure(error)
+            }
             self?.apply(result)
         }
     }
