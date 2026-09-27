@@ -109,7 +109,11 @@ public enum PandaQuotaClient {
     ) async throws -> PandaQuotaSnapshot {
         var base = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         while base.hasSuffix("/") { base.removeLast() }
-        guard let url = URL(string: base + "/llm/quota/me") else {
+        // Panda Desktop builds the quota URL via Oc() which inserts an /api
+        // prefix: {authBaseUrl}/api/llm/quota/me. Tolerate bases that already
+        // carry it.
+        let path = base.hasSuffix("/api") ? "/llm/quota/me" : "/api/llm/quota/me"
+        guard let url = URL(string: base + path) else {
             throw URLError(.badURL)
         }
         var request = URLRequest(url: url)

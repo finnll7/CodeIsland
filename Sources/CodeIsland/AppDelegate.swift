@@ -183,6 +183,30 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
+
+        // macOS 15+ auto-opens the SwiftUI `Settings { EmptyView() }` scene
+        // window at launch for accessory apps — a blank "CodeIsland Settings"
+        // shell with no purpose (the real settings UI is SettingsWindow-
+        // Controller, opened from the gear icon). Close the stray window
+        // shortly after launch; run twice to cover slow system opens. Only
+        // exact system-generated titles are matched, and the AppKit settings
+        // window cannot be open this early (it is user-interaction only).
+        let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "CodeIsland"
+        let strayTitle = "\(appName) Settings"
+        for delay in [0.6, 2.5, 5.0] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                var dump = "t=\(delay)\n"
+                for window in NSApp.windows {
+                    let cvType = String(describing: type(of: window.contentView))
+                    dump += "  title='\(window.title)' id='\(window.identifier?.rawValue ?? "nil")' "
+                    dump += "cv=\(cvType) frame=\(window.frame)\n"
+                }
+                try? dump.write(toFile: "/tmp/codeisland-windows.dump", atomically: true, encoding: .utf8)
+                for window in NSApp.windows where window.title == strayTitle {
+                    window.orderOut(nil)
+                }
+            }
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {

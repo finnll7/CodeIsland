@@ -49,6 +49,7 @@ class SettingsWindowController {
         window.contentView = hostingView
         window.contentMinSize = NSSize(width: min(560, screenW * 0.4), height: min(420, screenH * 0.4))
         window.toolbar = nil
+        window.isRestorable = false
         window.center()
         window.isReleasedWhenClosed = false
         window.makeKeyAndOrderFront(nil)
