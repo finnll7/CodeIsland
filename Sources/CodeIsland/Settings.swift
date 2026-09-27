@@ -90,6 +90,11 @@ enum SettingsKey {
     // Claude plan limits (Anthropic usage endpoint via the Claude Code login)
     static let showClaudeQuota = "showClaudeQuota"
 
+    // Panda plan limits (gateway /llm/quota/me with a user-pasted token)
+    static let showPandaQuota = "showPandaQuota"
+    static let pandaGatewayToken = "pandaGatewayToken"
+    static let pandaGatewayBaseURL = "pandaGatewayBaseURL"
+
     // Completion notification: "expand" | "glance" | "off". Successor of the
     // boolean autoExpandOnCompletion — see AppState.completionStyle migration.
     static let completionNotificationStyle = "completionNotificationStyle"
@@ -216,6 +221,7 @@ struct SettingsDefaults {
     static let showUsageStats = true
     static let showPandaUsage = true
     static let showClaudeQuota = false
+    static let showPandaQuota = false
 
     static let rotationInterval = 5
 
@@ -319,6 +325,7 @@ class SettingsManager {
             SettingsKey.showUsageStats: SettingsDefaults.showUsageStats,
             SettingsKey.showPandaUsage: SettingsDefaults.showPandaUsage,
             SettingsKey.showClaudeQuota: SettingsDefaults.showClaudeQuota,
+            SettingsKey.showPandaQuota: SettingsDefaults.showPandaQuota,
             SettingsKey.rotationInterval: SettingsDefaults.rotationInterval,
             SettingsKey.maxToolHistory: SettingsDefaults.maxToolHistory,
             SettingsKey.showTaskProgress: SettingsDefaults.showTaskProgress,

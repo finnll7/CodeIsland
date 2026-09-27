@@ -2017,11 +2017,13 @@ private struct SessionListView: View {
     var appState: AppState
     /// When set, only show this session (auto-expand on completion)
     var onlySessionId: String? = nil
+    @ObservedObject private var l10n = L10n.shared
     @AppStorage(SettingsKey.sessionGroupingMode) private var groupingMode = SettingsDefaults.sessionGroupingMode
     @AppStorage(SettingsKey.maxVisibleSessions) private var maxVisibleSessions = SettingsDefaults.maxVisibleSessions
     @AppStorage(SettingsKey.showUsageStats) private var showUsageStats = SettingsDefaults.showUsageStats
     @AppStorage(SettingsKey.showPandaUsage) private var showPandaUsage = SettingsDefaults.showPandaUsage
     @AppStorage(SettingsKey.showClaudeQuota) private var showClaudeQuota = SettingsDefaults.showClaudeQuota
+    @AppStorage(SettingsKey.showPandaQuota) private var showPandaQuota = SettingsDefaults.showPandaQuota
 
     private var groupedSessions: [(header: String, source: String?, ids: [String])] {
         if let only = onlySessionId, appState.sessions[only] != nil {
@@ -2191,6 +2193,15 @@ private struct SessionListView: View {
                     QuotaFooterMessage(error: error)
                 }
             }
+            if showPandaQuota, onlySessionId == nil {
+                if let snapshot = appState.pandaQuota.snapshot {
+                    PandaQuotaFooterLine(snapshot: snapshot)
+                } else if let error = appState.pandaQuota.lastError {
+                    PandaQuotaMessage(text: error)
+                } else if !appState.pandaQuota.isConfigured {
+                    PandaQuotaMessage(text: l10n["panda_quota_need_token"])
+                }
+            }
         }
     }
 }
@@ -2303,6 +2314,75 @@ private struct QuotaFooterMessage: View {
     var body: some View {
         HStack(spacing: 5) {
             Image(systemName: "clock.arrow.circlepath")
+                .font(.system(size: 9, weight: .semibold))
+            Text(text)
+            Spacer()
+        }
+        .font(.system(size: 10, weight: .medium, design: .monospaced))
+        .foregroundStyle(.white.opacity(0.35))
+        .padding(.horizontal, 14)
+        .padding(.vertical, 5)
+    }
+}
+
+/// Panda plan credits — one line: plan label, used/limit, percent bar, reset date.
+private struct PandaQuotaFooterLine: View {
+    let snapshot: PandaQuotaSnapshot
+
+    private var color: Color {
+        switch snapshot.level {
+        case .normal: return QuotaStyle.normal
+        case .warning: return QuotaStyle.warning
+        case .critical: return QuotaStyle.critical
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "creditcard")
+                .font(.system(size: 9, weight: .semibold))
+            Text("Panda")
+                .fontWeight(.semibold)
+            Text(snapshot.hasPlan ? snapshot.planLabel : "—")
+            Text("\(snapshot.creditsDisplay(snapshot.usedCredits)) / \(snapshot.isUnlimited ? "不限" : snapshot.creditsDisplay(snapshot.creditLimit))")
+            ZStack(alignment: .leading) {
+                Capsule().fill(.white.opacity(0.12))
+                Capsule().fill(color)
+                    .frame(width: 30 * min(snapshot.usagePercent / 100, 1))
+            }
+            .frame(width: 30, height: 4)
+            Text("\(Int(snapshot.usagePercent.rounded()))%")
+                .foregroundStyle(color)
+            Spacer()
+            if !snapshot.windowEndLabel.isEmpty {
+                Text("↻\(snapshot.windowEndLabel)")
+                    .foregroundStyle(.white.opacity(0.3))
+            }
+        }
+        .font(.system(size: 10, weight: .medium, design: .monospaced))
+        .foregroundStyle(.white.opacity(0.45))
+        .padding(.horizontal, 14)
+        .padding(.vertical, 5)
+        .help(detail)
+    }
+
+    private var detail: String {
+        var lines = [
+            "Panda \(snapshot.planLabel)",
+            "used \(snapshot.creditsDisplay(snapshot.usedCredits)) · limit \(snapshot.isUnlimited ? "不限" : snapshot.creditsDisplay(snapshot.creditLimit)) · remaining \(snapshot.creditsDisplay(snapshot.remainingCredits))",
+        ]
+        if !snapshot.windowEndLabel.isEmpty { lines.append("resets \(snapshot.windowEndLabel)") }
+        return lines.joined(separator: "\n")
+    }
+}
+
+/// Simple text footer for Panda quota states (no snapshot yet / fetch error).
+private struct PandaQuotaMessage: View {
+    let text: String
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "creditcard")
                 .font(.system(size: 9, weight: .semibold))
             Text(text)
             Spacer()

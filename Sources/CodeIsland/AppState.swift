@@ -291,8 +291,10 @@ final class AppState {
                 refreshClaudeUsageIfStale()
                 refreshPandaUsageIfStale()
                 claudeQuota.noteExpanded()
+                pandaQuota.noteExpanded()
             } else {
                 claudeQuota.noteCollapsed()
+                pandaQuota.noteCollapsed()
             }
             if surface != oldValue {
                 followUps.surfaceChanged(surface)
@@ -339,6 +341,8 @@ final class AppState {
     var pandaUsage: PandaUsageScanner.Snapshot?
     /// Subscription rate limits (5h / weekly) from Anthropic — opt-in, network.
     let claudeQuota = ClaudeQuotaMonitor()
+    /// Panda plan credits (gateway /llm/quota/me) — opt-in, needs a pasted token.
+    let pandaQuota = PandaQuotaMonitor()
     /// Process-wide, not per-instance: the scan reads one shared history
     /// (`~/.claude`), so two concurrent runs are always duplicate work. Production
     /// has a single AppState and never noticed, but anything constructing several —
@@ -1745,6 +1749,7 @@ final class AppState {
         // footer's week total then never lags behind the last completed task.
         if normalizedEventName == "Stop" {
             refreshPandaUsageIfStale(force: true)
+            pandaQuota.noteStop()
         }
 
         // Backfill model after metadata extraction. Hooks are inconsistent across providers,

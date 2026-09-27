@@ -1269,6 +1269,8 @@ private struct AppearancePage: View {
     @AppStorage(SettingsKey.showUsageStats) private var showUsageStats = SettingsDefaults.showUsageStats
     @AppStorage(SettingsKey.showPandaUsage) private var showPandaUsage = SettingsDefaults.showPandaUsage
     @AppStorage(SettingsKey.showClaudeQuota) private var showClaudeQuota = SettingsDefaults.showClaudeQuota
+    @AppStorage(SettingsKey.showPandaQuota) private var showPandaQuota = SettingsDefaults.showPandaQuota
+    @AppStorage(SettingsKey.pandaGatewayToken) private var pandaGatewayToken = ""
     @AppStorage(SettingsKey.collapsedWidthScale) private var collapsedWidthScale = SettingsDefaults.collapsedWidthScale
     @AppStorage(SettingsKey.notchHeightMode) private var notchHeightModeRaw = SettingsDefaults.notchHeightMode
     @AppStorage(SettingsKey.customNotchHeight) private var customNotchHeight = SettingsDefaults.customNotchHeight
@@ -1433,6 +1435,20 @@ private struct AppearancePage: View {
                     Text(l10n["show_claude_quota_desc"])
                         .font(.system(size: 11))
                         .foregroundStyle(.tertiary)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Toggle(l10n["show_panda_quota"], isOn: $showPandaQuota)
+                    Text(l10n["show_panda_quota_desc"])
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                    if showPandaQuota {
+                        SecureField(l10n["panda_quota_token_hint"], text: $pandaGatewayToken)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(size: 11, design: .monospaced))
+                        Text(l10n["panda_quota_token_desc"])
+                            .font(.system(size: 11))
+                            .foregroundStyle(.tertiary)
+                    }
                 }
             }
         }
