@@ -2543,7 +2543,6 @@ private struct SessionIdentityLine: View {
     let projectColor: Color
     let sessionFontSize: CGFloat
     let sessionColor: Color
-    let dividerColor: Color
     @AppStorage(SettingsKey.showGitBranch) private var showGitBranch = SettingsDefaults.showGitBranch
     @AppStorage(SettingsKey.showProjectName) private var showProjectName = SettingsDefaults.showProjectName
 
@@ -2572,6 +2571,19 @@ private struct SessionIdentityLine: View {
                     .layoutPriority(2)
             }
 
+            // The task name (session title) leads; the folder follows as a
+            // smaller link so the card keeps its Finder shortcut.
+            if let folder = headline.trailingProjectName, !folder.isEmpty {
+                ProjectNameLink(
+                    name: folder,
+                    cwd: session.cwd,
+                    isInteractive: !session.isRemote,
+                    fontSize: sessionFontSize,
+                    color: sessionColor.opacity(0.85)
+                )
+                .layoutPriority(1)
+            }
+
             if showGitBranch, let branch = session.gitBranch {
                 HStack(spacing: 2) {
                     Image(systemName: "arrow.triangle.branch")
@@ -2585,28 +2597,10 @@ private struct SessionIdentityLine: View {
                 .layoutPriority(1)
             }
 
-            if let sessionLabel = headline.trailingSessionLabel {
-                Text("#\(sessionLabel)")
-                    .font(.system(size: sessionFontSize, weight: .medium, design: .monospaced))
-                    .foregroundStyle(sessionColor)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .layoutPriority(1)
-
-                Text("·")
-                    .font(.system(size: sessionFontSize, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(dividerColor)
-
-                Text("#\(shortSessionId(displaySessionId))")
-                    .font(.system(size: sessionFontSize, weight: .medium, design: .monospaced))
-                    .foregroundStyle(sessionColor.opacity(0.6))
-                    .fixedSize()
-            } else {
-                Text("#\(shortSessionId(displaySessionId))")
-                    .font(.system(size: sessionFontSize, weight: .medium, design: .monospaced))
-                    .foregroundStyle(sessionColor.opacity(0.6))
-                    .fixedSize()
-            }
+            Text("#\(shortSessionId(displaySessionId))")
+                .font(.system(size: sessionFontSize, weight: .medium, design: .monospaced))
+                .foregroundStyle(sessionColor.opacity(0.6))
+                .fixedSize()
         }
     }
 }
@@ -2929,8 +2923,7 @@ private struct SessionCard: View {
                         projectFontSize: fontSize + 2,
                         projectColor: statusNameColor,
                         sessionFontSize: fontSize,
-                        sessionColor: .white.opacity(0.76),
-                        dividerColor: .white.opacity(0.28)
+                        sessionColor: .white.opacity(0.76)
                     )
                     Spacer(minLength: 8)
 

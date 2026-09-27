@@ -2,11 +2,12 @@ import Foundation
 
 /// What a session card leads with.
 ///
-/// By default a card leads with the project folder and appends the session
-/// title (`#title`). With "Show project name" off — screen sharing, demos,
-/// client work — no folder name may appear on the card, so the title moves
-/// into the lead slot, and a session without a title falls back to the agent's
-/// name rather than to the folder it was supposed to hide.
+/// The session title is the task name the user recognises — the collapsed
+/// bar already leads with it — so a titled card leads with the title and
+/// follows with the project folder as a smaller link. With "Show project
+/// name" off, no folder name may appear on the card at all (screen sharing,
+/// demos, client work); an untitled session falls back to the folder (or the
+/// agent's name when the folder is hidden) rather than showing nothing.
 public struct SessionHeadline: Equatable, Sendable {
     public enum Kind: Equatable, Sendable {
         /// The project folder (clickable: reveals the folder in Finder).
@@ -19,14 +20,14 @@ public struct SessionHeadline: Equatable, Sendable {
 
     public let text: String
     public let kind: Kind
-    /// Session title rendered after the lead as `#title`; nil when the title
-    /// already *is* the lead.
-    public let trailingSessionLabel: String?
+    /// Project folder rendered after a leading session title; nil when the
+    /// folder already *is* the lead (or is hidden).
+    public let trailingProjectName: String?
 
-    public init(text: String, kind: Kind, trailingSessionLabel: String?) {
+    public init(text: String, kind: Kind, trailingProjectName: String? = nil) {
         self.text = text
         self.kind = kind
-        self.trailingSessionLabel = trailingSessionLabel
+        self.trailingProjectName = trailingProjectName
     }
 
     /// Short context line for places outside the card (collapsed bar, question
@@ -43,16 +44,16 @@ public struct SessionHeadline: Equatable, Sendable {
 
 extension SessionSnapshot {
     public func headline(showProjectName: Bool) -> SessionHeadline {
-        if showProjectName {
+        if let sessionLabel {
             return SessionHeadline(
-                text: projectDisplayName,
-                kind: .project,
-                trailingSessionLabel: sessionLabel
+                text: sessionLabel,
+                kind: .sessionTitle,
+                trailingProjectName: showProjectName ? projectDisplayName : nil
             )
         }
-        if let sessionLabel {
-            return SessionHeadline(text: sessionLabel, kind: .sessionTitle, trailingSessionLabel: nil)
+        if showProjectName {
+            return SessionHeadline(text: projectDisplayName, kind: .project)
         }
-        return SessionHeadline(text: sourceLabel, kind: .agent, trailingSessionLabel: nil)
+        return SessionHeadline(text: sourceLabel, kind: .agent)
     }
 }

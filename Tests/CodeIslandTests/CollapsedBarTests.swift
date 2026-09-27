@@ -29,9 +29,11 @@ final class CollapsedBarTests: XCTestCase {
         XCTAssertEqual(tooltip, "↻ Claude\nRotated the API keys; waiting on your review.")
     }
 
-    func testRecapTooltipStillLeadsWithTheFolderByDefault() {
+    func testRecapTooltipLeadsWithTheTitleByDefault() {
+        // The card leads with the session title (the task name); the tooltip
+        // is headed the same way.
         let tooltip = SessionMetadataStyle.collapsedRecapTooltip(for: idleSession(title: "Key rotation"), showProjectName: true)
-        XCTAssertEqual(tooltip, "↻ acme-client-portal\nRotated the API keys; waiting on your review.")
+        XCTAssertEqual(tooltip, "↻ Key rotation\nRotated the API keys; waiting on your review.")
         XCTAssertEqual(SessionMetadataStyle.collapsedRecapTooltip(for: nil, showProjectName: true), "")
     }
 

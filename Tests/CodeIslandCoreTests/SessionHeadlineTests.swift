@@ -10,18 +10,20 @@ final class SessionHeadlineTests: XCTestCase {
         return s
     }
 
-    func testProjectNameLeadsAndTitleTrailsByDefault() {
+    func testTitledSessionLeadsWithTheTitleAndTrailsTheFolder() {
         let headline = snapshot(cwd: "/Users/me/code/island", title: "Fix hover delay")
             .headline(showProjectName: true)
-        XCTAssertEqual(headline, SessionHeadline(text: "island", kind: .project, trailingSessionLabel: "Fix hover delay"))
+        // The session title is the task name — it leads; the folder follows
+        // as a smaller link instead of the other way round.
+        XCTAssertEqual(headline, SessionHeadline(text: "Fix hover delay", kind: .sessionTitle, trailingProjectName: "island"))
     }
 
-    func testHiddenProjectNamePromotesTheSessionTitle() {
+    func testHiddenProjectNameShowsTheTitleAlone() {
         let headline = snapshot(cwd: "/Users/me/code/island", title: "  Fix hover delay ")
             .headline(showProjectName: false)
         XCTAssertEqual(headline.kind, .sessionTitle)
         XCTAssertEqual(headline.text, "Fix hover delay")
-        XCTAssertNil(headline.trailingSessionLabel, "the title is not repeated after itself")
+        XCTAssertNil(headline.trailingProjectName, "the folder is hidden")
     }
 
     /// Without a title the card must not fall back to the folder it was told
