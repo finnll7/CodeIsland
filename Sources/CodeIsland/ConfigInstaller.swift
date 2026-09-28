@@ -650,11 +650,38 @@ struct ConfigInstaller {
         ),
         // Panda Code — Claude Code compatible hook format.
         // Config at ~/.panda/settings.json with "hooks" key.
+        // Event list mirrors Claude Code's: Panda's engine is a Claude fork —
+        // runPermissionRequestHook fires PermissionRequest whenever a tool needs
+        // approval, and its output parser accepts
+        // {"hookSpecificOutput":{"hookEventName":"PermissionRequest",
+        // "decision":{"behavior":…,"updatedInput":…}}}. The blocking
+        // PermissionRequest hook (86400s, like Claude) is what lets the island
+        // answer approvals and AskUserQuestion prompts; without it the events
+        // never reach CodeIsland and Panda falls back to its own dialogs.
         CLIConfig(
             name: "Panda Code", source: "panda",
             configPath: ".panda/settings.json", configKey: "hooks",
             format: .claude,
-            events: defaultEvents(for: .claude)
+            events: [
+                ("UserPromptSubmit", 5, true),
+                // Short status hook on purpose: Panda's ask_question cannot be
+                // answered externally (it only accepts answers matching an
+                // already-pending request, which never exists at PreToolUse
+                // time), so intercepting it here would just dead-end the tool.
+                // Approvals ride the blocking PermissionRequest hook below.
+                ("PreToolUse", 5, false),
+                ("PostToolUse", 5, true),
+                ("PostToolUseFailure", 5, true),
+                ("PermissionRequest", 86400, false),
+                ("Stop", 5, true),
+                ("StopFailure", 5, true),
+                ("SubagentStart", 5, true),
+                ("SubagentStop", 5, true),
+                ("SessionStart", 5, false),
+                ("SessionEnd", 5, true),
+                ("Notification", 86400, false),
+                ("PreCompact", 5, true),
+            ]
         )
     ]
 
