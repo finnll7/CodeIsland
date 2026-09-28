@@ -2803,7 +2803,20 @@ final class AppState {
         // "undefined is not an object (evaluating 'H.map')".
         // Fall back to the raw toolInput value when the [[String:Any]] cast fails.
         updatedInput["questions"] = originalQuestions ?? (event.toolInput?["questions"] ?? [] as [[String: Any]])
-        updatedInput["answers"] = answers
+        if (event.rawJSON["_source"] as? String) == "panda" {
+            // Panda's ask_question validates `answers` as an ARRAY of
+            // {question_id, selected_option_ids?, freeform_text?} (zod, snake_case);
+            // the Claude shape (questionText → answer object) fails with "expected
+            // array, received object". Engine-side ids are positional:
+            // question `q_<i>`, option `opt_<i>_<j>`.
+            updatedInput["answers"] = pandaAnswersArray(
+                answers: answers,
+                answerDetails: answerDetails,
+                originalQuestions: originalQuestions
+            )
+        } else {
+            updatedInput["answers"] = answers
+        }
         // Qoder CLI validates updatedInput against the AskUserQuestion schema
         // (additionalProperties: false, only questions/answers/annotations/
         // metadata). The scalar `answer` key fails that validation with
@@ -2821,6 +2834,50 @@ final class AppState {
             updatedInput["_codeislandAnswerDetails"] = answerDetails
         }
         return updatedInput
+    }
+
+    /// Panda-format answers for `ask_question` (PreToolUse interception).
+    /// `answers` is keyed by the question TEXT (the AskUserQuestionItem
+    /// answerKey); option ids are positional (`opt_<questionIndex>_<optionIndex>`)
+    /// per the engine's questionnaire builder. Labels matching no declared
+    /// option (free input / the built-in "other") travel as `freeform_text`.
+    private func pandaAnswersArray(
+        answers: [String: String],
+        answerDetails: [String: [String: Any]],
+        originalQuestions: [[String: Any]]?
+    ) -> [[String: Any]] {
+        guard let questions = originalQuestions, !questions.isEmpty else { return [] }
+        var result: [[String: Any]] = []
+        for (index, question) in questions.enumerated() {
+            let questionText = (question["question"] as? String) ?? ""
+            let header = (question["header"] as? String) ?? ""
+            guard let answer = answers[questionText] ?? answers[header], !answer.isEmpty else {
+                continue
+            }
+            let options = (question["options"] as? [[String: Any]]) ?? []
+            var selectedIds: [String] = []
+            var freeform: String?
+            if let custom = answerDetails[questionText]?["customInput"] as? String,
+               !custom.isEmpty {
+                freeform = custom
+            }
+            let labels = answerDetails[questionText]?["selectedOptions"] as? [String] ?? [answer]
+            for label in labels {
+                let trimmed = label.trimmingCharacters(in: .whitespaces)
+                if let optionIndex = options.firstIndex(where: {
+                    (($0["label"] as? String) ?? "").trimmingCharacters(in: .whitespaces) == trimmed
+                }) {
+                    selectedIds.append("opt_\(index)_\(optionIndex)")
+                } else if freeform == nil {
+                    freeform = label
+                }
+            }
+            var entry: [String: Any] = ["question_id": "q_\(index)"]
+            if !selectedIds.isEmpty { entry["selected_option_ids"] = selectedIds }
+            if let freeform, !freeform.isEmpty { entry["freeform_text"] = freeform }
+            if entry.count > 1 { result.append(entry) }
+        }
+        return result
     }
 
     func skipQuestion(expectedSessionId: String? = nil) {

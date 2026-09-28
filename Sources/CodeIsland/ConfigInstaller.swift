@@ -665,10 +665,9 @@ struct ConfigInstaller {
             events: [
                 ("UserPromptSubmit", 5, true),
                 // Short status hook on purpose: Panda's ask_question cannot be
-                // answered externally (it only accepts answers matching an
-                // already-pending request, which never exists at PreToolUse
-                // time), so intercepting it here would just dead-end the tool.
-                // Approvals ride the blocking PermissionRequest hook below.
+                // answered externally (answers only resolve an already-pending
+                // request that never exists at PreToolUse time). Approvals ride
+                // the blocking PermissionRequest hook below.
                 ("PreToolUse", 5, false),
                 ("PostToolUse", 5, true),
                 ("PostToolUseFailure", 5, true),

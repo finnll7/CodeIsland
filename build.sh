@@ -135,8 +135,15 @@ build_mac() {
 
     ENTITLEMENTS="CodeIsland.entitlements"
 
-    # Use SIGN_ID env var, or auto-detect: prefer "Developer ID Application" for distribution,
-    # fall back to any valid identity, then ad-hoc
+    # Use SIGN_ID env var, or auto-detect: prefer the fixed local self-signed
+    # identity ("CodeIsland Developer", created once via openssl + security
+    # import) — its stable certificate keeps keychain ACLs (e.g. Panda Safe
+    # Storage) trusting CodeIsland across rebuilds; ad-hoc CDHashes change
+    # every build and re-prompt for access. Then "Developer ID Application"
+    # for distribution, any valid identity, then ad-hoc.
+    if [ -z "${SIGN_ID:-}" ] && security find-certificate -c "CodeIsland Developer" >/dev/null 2>&1; then
+        SIGN_ID="CodeIsland Developer"
+    fi
     if [ -z "${SIGN_ID:-}" ]; then
         SIGN_ID=$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1 | sed 's/.*"\(.*\)".*/\1/' 2>/dev/null || true)
     fi

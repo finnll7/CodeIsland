@@ -312,12 +312,13 @@ class HookServer {
         if normalizedEventName == "PermissionRequest" {
             return .permission
         }
-        // Panda's ask_question CANNOT be answered from the island: the engine
-        // never fires PermissionRequest for it (five live probes, zero events),
-        // and a PreToolUse interception dead-ends — the tool registers its
-        // pending request only at execution time, so injected answers always
-        // miss the pending map ("could not be matched"). Interception was
-        // reverted deliberately; Panda keeps asking in its own window.
+        // Panda's ask_question CANNOT be answered from the island, verified
+        // end-to-end: the engine never fires PermissionRequest for it, a
+        // PreToolUse interception delivers the answer fine but the tool
+        // discards it — its answers array only resolves an ALREADY-pending
+        // request, and the request registers at execution time (after this
+        // hook), so the injected answer always misses ("could not be
+        // matched"). Interception reverted; Panda asks in its own window.
         if normalizedEventName == "Notification", QuestionPayload.from(event: event) != nil {
             return .question
         }
