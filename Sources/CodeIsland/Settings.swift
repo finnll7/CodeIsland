@@ -95,6 +95,9 @@ enum SettingsKey {
     static let pandaGatewayToken = "pandaGatewayToken"
     static let pandaGatewayBaseURL = "pandaGatewayBaseURL"
 
+    // Now-Playing footer (system media info via the MediaRemote framework)
+    static let showNowPlaying = "showNowPlaying"
+
     // Completion notification: "expand" | "glance" | "off". Successor of the
     // boolean autoExpandOnCompletion — see AppState.completionStyle migration.
     static let completionNotificationStyle = "completionNotificationStyle"
@@ -222,6 +225,7 @@ struct SettingsDefaults {
     static let showPandaUsage = true
     static let showClaudeQuota = false
     static let showPandaQuota = false
+    static let showNowPlaying = true
 
     static let rotationInterval = 5
 
@@ -326,6 +330,7 @@ class SettingsManager {
             SettingsKey.showPandaUsage: SettingsDefaults.showPandaUsage,
             SettingsKey.showClaudeQuota: SettingsDefaults.showClaudeQuota,
             SettingsKey.showPandaQuota: SettingsDefaults.showPandaQuota,
+            SettingsKey.showNowPlaying: SettingsDefaults.showNowPlaying,
             SettingsKey.rotationInterval: SettingsDefaults.rotationInterval,
             SettingsKey.maxToolHistory: SettingsDefaults.maxToolHistory,
             SettingsKey.showTaskProgress: SettingsDefaults.showTaskProgress,

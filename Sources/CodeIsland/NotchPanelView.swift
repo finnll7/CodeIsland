@@ -2202,7 +2202,120 @@ private struct SessionListView: View {
                     PandaQuotaMessage(text: l10n["panda_quota_need_token"])
                 }
             }
+            if appState.nowPlaying.isLive, onlySessionId == nil {
+                NowPlayingFooterLine(monitor: appState.nowPlaying)
+            }
         }
+    }
+}
+
+// MARK: - Now Playing (system media via MediaRemote)
+
+private struct NowPlayingFooterLine: View {
+    let monitor: NowPlayingMonitor
+
+    var body: some View {
+        HStack(spacing: 8) {
+            artwork
+            VStack(alignment: .leading, spacing: 2) {
+                Text(monitor.title)
+                    .font(.system(size: 10, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .help(monitor.title)
+                Text(subtitle)
+                    .font(.system(size: 9))
+                    .foregroundStyle(.white.opacity(0.5))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .help(subtitle)
+            }
+            Spacer()
+            if monitor.duration > 0 {
+                Text("\(formatTime(monitor.elapsedTime)) / \(formatTime(monitor.duration))")
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.5))
+                    .help(progressDetail)
+            }
+            HStack(spacing: 12) {
+                Button {
+                    monitor.previousTrack()
+                } label: {
+                    Image(systemName: "backward.fill")
+                        .font(.system(size: 10, weight: .semibold))
+                        .contentShape(Rectangle())
+                }
+                Button {
+                    monitor.togglePlayPause()
+                } label: {
+                    Image(systemName: monitor.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                        .contentShape(Rectangle())
+                }
+                Button {
+                    monitor.nextTrack()
+                } label: {
+                    Image(systemName: "forward.fill")
+                        .font(.system(size: 10, weight: .semibold))
+                        .contentShape(Rectangle())
+                }
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.white.opacity(0.8))
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 6)
+        .background(
+            GeometryReader { proxy in
+                // Thin progress rail along the card's bottom edge.
+                Capsule()
+                    .fill(.white.opacity(0.10))
+                    .frame(height: 2)
+                    .frame(width: proxy.size.width * progressFraction, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(height: 2, alignment: .bottom)
+            }
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+
+    @ViewBuilder
+    private var artwork: some View {
+        let base = RoundedRectangle(cornerRadius: 4)
+        if let art = monitor.artwork {
+            Image(nsImage: art)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .frame(width: 24, height: 24)
+                .clipShape(base)
+        } else {
+            base.fill(.white.opacity(0.12))
+                .frame(width: 24, height: 24)
+                .overlay {
+                    Image(systemName: "music.note")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.6))
+                }
+        }
+    }
+
+    private var subtitle: String {
+        if monitor.artist.isEmpty { return monitor.sourceName }
+        return monitor.album.isEmpty ? monitor.artist : "\(monitor.artist) — \(monitor.album)"
+    }
+
+    private var progressFraction: Double {
+        guard monitor.duration > 0 else { return 0 }
+        return min(max(monitor.elapsedTime / monitor.duration, 0), 1)
+    }
+
+    private var progressDetail: String {
+        "Progress: \(Int(progressFraction * 100))% (\(Int(monitor.playbackRate * 100))% speed)"
+    }
+
+    private func formatTime(_ time: TimeInterval) -> String {
+        let total = Int(time.rounded())
+        return String(format: "%d:%02d", total / 60, total % 60)
     }
 }
 

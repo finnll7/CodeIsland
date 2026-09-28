@@ -344,6 +344,9 @@ final class AppState {
     /// Panda plan credits (gateway /llm/quota/me) — opt-in; token pasted in
     /// Settings or auto-retrieved read-only from the local Panda state.
     let pandaQuota = PandaQuotaMonitor()
+    /// System Now-Playing info (MediaRemote private framework) — footer music
+    /// card with playback controls; gated by the showNowPlaying setting.
+    let nowPlaying = NowPlayingMonitor()
     /// Process-wide, not per-instance: the scan reads one shared history
     /// (`~/.claude`), so two concurrent runs are always duplicate work. Production
     /// has a single AppState and never noticed, but anything constructing several —

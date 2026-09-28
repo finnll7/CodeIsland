@@ -1270,6 +1270,7 @@ private struct AppearancePage: View {
     @AppStorage(SettingsKey.showPandaUsage) private var showPandaUsage = SettingsDefaults.showPandaUsage
     @AppStorage(SettingsKey.showClaudeQuota) private var showClaudeQuota = SettingsDefaults.showClaudeQuota
     @AppStorage(SettingsKey.showPandaQuota) private var showPandaQuota = SettingsDefaults.showPandaQuota
+    @AppStorage(SettingsKey.showNowPlaying) private var showNowPlaying = SettingsDefaults.showNowPlaying
     @AppStorage(SettingsKey.pandaGatewayToken) private var pandaGatewayToken = ""
     @AppStorage(SettingsKey.collapsedWidthScale) private var collapsedWidthScale = SettingsDefaults.collapsedWidthScale
     @AppStorage(SettingsKey.notchHeightMode) private var notchHeightModeRaw = SettingsDefaults.notchHeightMode
@@ -1449,6 +1450,12 @@ private struct AppearancePage: View {
                             .font(.system(size: 11))
                             .foregroundStyle(.tertiary)
                     }
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Toggle(l10n["show_now_playing"], isOn: $showNowPlaying)
+                    Text(l10n["show_now_playing_desc"])
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
                 }
             }
         }
