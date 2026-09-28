@@ -341,7 +341,8 @@ final class AppState {
     var pandaUsage: PandaUsageScanner.Snapshot?
     /// Subscription rate limits (5h / weekly) from Anthropic — opt-in, network.
     let claudeQuota = ClaudeQuotaMonitor()
-    /// Panda plan credits (gateway /llm/quota/me) — opt-in, needs a pasted token.
+    /// Panda plan credits (gateway /llm/quota/me) — opt-in; token pasted in
+    /// Settings or auto-retrieved read-only from the local Panda state.
     let pandaQuota = PandaQuotaMonitor()
     /// Process-wide, not per-instance: the scan reads one shared history
     /// (`~/.claude`), so two concurrent runs are always duplicate work. Production

@@ -3,9 +3,13 @@ import Foundation
 
 /// Fetches the Panda plan-quota snapshot from the gateway. Simplified sibling
 /// of `ClaudeQuotaMonitor`: same event-driven surface (expand / collapse /
-/// stop), throttled to one fetch per 120 s. The gateway token is supplied by
-/// the user in Settings (Panda stores it safeStorage-encrypted in its own
-/// state db, which we deliberately do not read).
+/// stop), throttled to one fetch per 120 s.
+///
+/// The gateway token comes from Settings when pasted, otherwise it is
+/// auto-retrieved read-only from the local Panda state (Keychain + state.db,
+/// see `PandaTokenProvider`). Because that keychain read can block on a
+/// consent prompt nobody answers, a stuck fetch must not freeze the monitor:
+/// a watchdog releases the flight lock after `staleFlightTimeout`.
 @MainActor
 @Observable
 final class PandaQuotaMonitor {
@@ -14,10 +18,32 @@ final class PandaQuotaMonitor {
     private(set) var isExpanded = false
 
     @ObservationIgnored private var inFlight = false
+    /// Monotonic fetch id: a superseded fetch (released by the watchdog, then
+    /// replaced) must not clobber a newer one's state when it finally lands.
+    @ObservationIgnored private var fetchGeneration = 0
+    /// A Stop arrived since the last completed fetch — credits were booked
+    /// server-side, so the next expand must fetch even inside the 120 s
+    /// throttle (covers the common case: work finishes while collapsed).
+    @ObservationIgnored private var stopSinceLastFetch = false
     @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private let fetcher: @Sendable () async throws -> PandaQuotaSnapshot
+    @ObservationIgnored private let staleFlightTimeout: TimeInterval
 
-    init(defaults: UserDefaults = .standard) {
+    init(
+        defaults: UserDefaults = .standard,
+        staleFlightTimeout: TimeInterval = 60,
+        fetcher: @escaping @Sendable () async throws -> PandaQuotaSnapshot = {
+            let manualToken = (UserDefaults.standard.string(forKey: SettingsKey.pandaGatewayToken) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            // Keychain read + scrypt (16 MB memory) run off the main actor.
+            let token = manualToken.isEmpty ? try PandaTokenProvider.fetchToken() : manualToken
+            let base = UserDefaults.standard.string(forKey: SettingsKey.pandaGatewayBaseURL) ?? PandaQuotaClient.defaultBaseURL
+            return try await PandaQuotaClient.fetch(token: token, baseURL: base)
+        }
+    ) {
         self.defaults = defaults
+        self.staleFlightTimeout = staleFlightTimeout
+        self.fetcher = fetcher
     }
 
     /// Gateway access token pasted by the user in Settings. When empty the
@@ -41,6 +67,10 @@ final class PandaQuotaMonitor {
     func noteExpanded() {
         isExpanded = true
         guard isEnabled, isConfigured else { return }
+        if stopSinceLastFetch || snapshot == nil {
+            fetchNow()
+            return
+        }
         if let fetchedAt = snapshot?.fetchedAt,
            Date().timeIntervalSince(fetchedAt) < 120 { return }
         fetchNow()
@@ -51,33 +81,45 @@ final class PandaQuotaMonitor {
     }
 
     /// A finished turn may have consumed credits — refresh opportunistically.
+    /// While collapsed the footer is invisible, so the refresh is deferred to
+    /// the next expand rather than hitting the keychain in the background.
     func noteStop() {
-        guard isEnabled, isConfigured, isExpanded else { return }
-        if let fetchedAt = snapshot?.fetchedAt,
-           Date().timeIntervalSince(fetchedAt) < 120 { return }
+        guard isEnabled, isConfigured else { return }
+        stopSinceLastFetch = true
+        guard isExpanded, !inFlight else { return }
         fetchNow()
     }
 
+    /// Kick off one fetch immediately (respects an in-flight request).
     func fetchNow() {
         guard !inFlight, isEnabled, isConfigured else { return }
         inFlight = true
-        let manualToken = self.token
-        let baseURL = defaults.string(forKey: SettingsKey.pandaGatewayBaseURL) ?? PandaQuotaClient.defaultBaseURL
+        fetchGeneration += 1
+        let generation = fetchGeneration
+        let fetcher = self.fetcher
         Task { [weak self] in
             let result: Result<PandaQuotaSnapshot, Error>
             do {
-                // Keychain read + scrypt (16 MB memory) run off the main actor.
-                let resolved = manualToken.isEmpty ? try PandaTokenProvider.fetchToken() : manualToken
-                result = .success(try await PandaQuotaClient.fetch(token: resolved, baseURL: baseURL))
+                result = .success(try await fetcher())
             } catch {
                 result = .failure(error)
             }
-            self?.apply(result)
+            self?.apply(result, generation: generation)
+        }
+        // Watchdog: the token retrieval can block on a keychain consent
+        // prompt nobody answers; release the flight lock after a grace
+        // period so later expands retry instead of freezing forever.
+        let timeout = staleFlightTimeout
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+            self?.releaseStaleFlight(generation: generation)
         }
     }
 
-    private func apply(_ result: Result<PandaQuotaSnapshot, Error>) {
+    private func apply(_ result: Result<PandaQuotaSnapshot, Error>, generation: Int) {
+        guard generation == fetchGeneration else { return }
         inFlight = false
+        stopSinceLastFetch = false
         switch result {
         case .success(let snap):
             snapshot = snap
@@ -85,6 +127,11 @@ final class PandaQuotaMonitor {
         case .failure(let error):
             lastError = error.localizedDescription
         }
+    }
+
+    private func releaseStaleFlight(generation: Int) {
+        guard generation == fetchGeneration, inFlight else { return }
+        inFlight = false
     }
 }
 
