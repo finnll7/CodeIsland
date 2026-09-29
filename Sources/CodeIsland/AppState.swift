@@ -292,6 +292,7 @@ final class AppState {
                 refreshPandaUsageIfStale()
                 claudeQuota.noteExpanded()
                 pandaQuota.noteExpanded()
+                externalModel.refreshIfStale()
             } else {
                 claudeQuota.noteCollapsed()
                 pandaQuota.noteCollapsed()
@@ -349,6 +350,9 @@ final class AppState {
     let nowPlaying = NowPlayingMonitor()
     /// Today's calendar events (EventKit) — header card; gated by showCalendar.
     let calendar = CalendarMonitor()
+    /// Panda's selected model — when an external ("custom") model is active,
+    /// its provider balance replaces the Panda plan card.
+    let externalModel = ExternalModelMonitor()
     /// Process-wide, not per-instance: the scan reads one shared history
     /// (`~/.claude`), so two concurrent runs are always duplicate work. Production
     /// has a single AppState and never noticed, but anything constructing several —
@@ -1756,6 +1760,7 @@ final class AppState {
         if normalizedEventName == "Stop" {
             refreshPandaUsageIfStale(force: true)
             pandaQuota.noteStop()
+            externalModel.refreshIfStale()
         }
 
         // Backfill model after metadata extraction. Hooks are inconsistent across providers,

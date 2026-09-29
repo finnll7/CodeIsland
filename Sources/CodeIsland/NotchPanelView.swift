@@ -2214,7 +2214,12 @@ private struct SessionListView: View {
                     QuotaFooterMessage(error: error)
                 }
             }
-            if showPandaQuota, onlySessionId == nil {
+            // An external ("custom") model selected in Panda replaces the
+            // Panda plan card with that provider's balance (where available).
+            if appState.externalModel.isLive, onlySessionId == nil,
+               let external = appState.externalModel.externalModel {
+                ExternalModelFooterLine(model: external)
+            } else if showPandaQuota, onlySessionId == nil {
                 if let snapshot = appState.pandaQuota.snapshot {
                     PandaQuotaFooterLine(snapshot: snapshot)
                 } else if let error = appState.pandaQuota.lastError {
@@ -2355,6 +2360,39 @@ private struct NowPlayingHeaderCard: View {
     private func formatTime(_ time: TimeInterval) -> String {
         let total = Int(time.rounded())
         return String(format: "%d:%02d", total / 60, total % 60)
+    }
+}
+
+// MARK: - External model (Panda "custom" model selected)
+
+private struct ExternalModelFooterLine: View {
+    let model: ExternalModelMonitor.ExternalModel
+    @ObservedObject private var l10n = L10n.shared
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "cpu")
+                .font(.system(size: 9, weight: .semibold))
+            Text(l10n["external_model_label"])
+                .fontWeight(.semibold)
+            Text(model.name)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Text("·")
+                .foregroundStyle(.white.opacity(0.25))
+            if let balance = model.balanceText {
+                Text("\(l10n["external_balance"]) \(balance)")
+            } else {
+                Text(l10n["external_no_balance"])
+                    .foregroundStyle(.white.opacity(0.35))
+            }
+            Spacer()
+        }
+        .font(.system(size: 10, weight: .medium, design: .monospaced))
+        .foregroundStyle(.white.opacity(0.5))
+        .padding(.horizontal, 14)
+        .padding(.vertical, 5)
+        .help("\(l10n["external_model_label"]): \(model.name) (\(model.provider))")
     }
 }
 

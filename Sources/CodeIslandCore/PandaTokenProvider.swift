@@ -48,8 +48,47 @@ public enum PandaTokenProvider {
     /// Full automatic retrieval. Blocking I/O — call off the main actor.
     public static func fetchToken() throws -> String {
         let password = try keychainPassword()
-        let encrypted = try readEncryptedToken()
+        let encrypted = try readEncryptedValue("auth.accessToken")
         return try decrypt(encryptedValue: encrypted, keyringPassword: password)
+    }
+
+    /// Plaintext value from `state_kv` (e.g. `models.defaultModelId`,
+    /// `models.custom.v1`). Blocking I/O — call off the main actor. Nil when
+    /// the db is missing or the key is absent.
+    public static func readStateValue(_ key: String) -> String? {
+        guard FileManager.default.fileExists(atPath: stateDBPath),
+              let db = openStateDB() else { return nil }
+        defer { sqlite3_close(db) }
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "SELECT value FROM state_kv WHERE key = ?", -1, &stmt, nil) == SQLITE_OK else {
+            return nil
+        }
+        defer { sqlite3_finalize(stmt) }
+        sqlite3_bind_text(stmt, 1, key, -1, SQLITE_TRANSIENT)
+        guard sqlite3_step(stmt) == SQLITE_ROW, let cString = sqlite3_column_text(stmt, 0) else {
+            return nil
+        }
+        return String(cString: cString)
+    }
+
+    /// Decrypted secret for an external ("custom") model —
+    /// `secret_kv.panda.model.custom.apiKey.<modelID>` where modelID carries
+    /// no `custom:` prefix. Blocking I/O — call off the main actor.
+    public static func readCustomModelKey(modelID: String) -> String? {
+        guard FileManager.default.fileExists(atPath: stateDBPath) else { return nil }
+        guard let password = try? keychainPassword() else { return nil }
+        guard let encrypted = try? readEncryptedValue("panda.model.custom.apiKey.\(modelID)") else {
+            return nil
+        }
+        return try? decrypt(encryptedValue: encrypted, keyringPassword: password)
+    }
+
+    private static func openStateDB() -> OpaquePointer? {
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(stateDBPath, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
+            return nil
+        }
+        return db
     }
 
     // MARK: - Keychain
@@ -72,13 +111,11 @@ public enum PandaTokenProvider {
 
     // MARK: - SQLite (read-only)
 
-    private static func readEncryptedToken() throws -> String {
+    private static func readEncryptedValue(_ key: String) throws -> String {
         guard FileManager.default.fileExists(atPath: stateDBPath) else {
             throw TokenError.stateDBUnavailable
         }
-        var db: OpaquePointer?
-        guard sqlite3_open_v2(stateDBPath, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
-            sqlite3_close(db)
+        guard let db = openStateDB() else {
             throw TokenError.stateDBUnavailable
         }
         defer { sqlite3_close(db) }
@@ -88,7 +125,7 @@ public enum PandaTokenProvider {
             throw TokenError.tokenNotStored
         }
         defer { sqlite3_finalize(stmt) }
-        sqlite3_bind_text(stmt, 1, "auth.accessToken", -1, SQLITE_TRANSIENT)
+        sqlite3_bind_text(stmt, 1, key, -1, SQLITE_TRANSIENT)
         guard sqlite3_step(stmt) == SQLITE_ROW, let cString = sqlite3_column_text(stmt, 0) else {
             throw TokenError.tokenNotStored
         }
