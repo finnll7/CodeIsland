@@ -2299,7 +2299,9 @@ private struct NowPlayingHeaderCard: View {
     @ViewBuilder
     private var artwork: some View {
         let base = RoundedRectangle(cornerRadius: 8)
-        if let art = monitor.artwork {
+        // Cover priority: real artwork → the playing player's own app icon
+        // (QQ Music & friends provide no artwork) → music-note placeholder.
+        if let art = monitor.artwork ?? monitor.appIcon {
             Image(nsImage: art)
                 .resizable()
                 .aspectRatio(contentMode: .fill)

@@ -22,6 +22,7 @@ typealias RegisterFunc = @convention(c) (DispatchQueue) -> Void
 typealias GetInfoFunc = @convention(c) (DispatchQueue, @escaping ([String: Any]) -> Void) -> Void
 typealias SendFunc = @convention(c) (UInt32, UnsafeMutableRawPointer?) -> Bool
 typealias GetPlayingFunc = @convention(c) (DispatchQueue, @escaping (Bool) -> Void) -> Void
+typealias GetPIDFunc = @convention(c) (DispatchQueue, @escaping (pid_t) -> Void) -> Void
 
 guard let handle = dlopen("/System/Library/PrivateFrameworks/MediaRemote.framework/MediaRemote", RTLD_NOW),
       let r = dlsym(handle, "MRMediaRemoteRegisterForNowPlayingNotifications"),
@@ -37,6 +38,10 @@ let sendFunc = unsafeBitCast(sc, to: SendFunc.self)
 // players that freeze their MediaRemote info (QQ Music & co.).
 let getPlayingFunc = dlsym(handle, "MRMediaRemoteGetNowPlayingApplicationIsPlaying")
     .map { unsafeBitCast($0, to: GetPlayingFunc.self) }
+// Optional: pid of the playing app — lets the app show the player's own icon
+// as cover fallback (players like QQ Music provide no artwork data).
+let getPIDFunc = dlsym(handle, "MRMediaRemoteGetNowPlayingApplicationPID")
+    .map { unsafeBitCast($0, to: GetPIDFunc.self) }
 
 var lastLine = ""
 var lastPlaybackRate: Double = 0
@@ -50,49 +55,61 @@ var sysPlaying = false
 // reliable pause signal and must be polled.
 func sample() {
     getInfoFunc(DispatchQueue.main) { info in
-        let finish: (Bool?) -> Void = { playing in
-            sysPlaying = playing ?? false
-            let title = info["kMRMediaRemoteNowPlayingInfoTitle"] as? String ?? ""
-            // Player quit / queue emptied: MediaRemote pushes an EMPTY info
-            // dict. The app must be told explicitly or it keeps showing the
-            // last track forever.
-            guard !title.isEmpty else {
-                if hadTrack {
-                    hadTrack = false
-                    lastSignature = ""
-                    fputs("{\"cleared\":true}\n", stdout)
-                    fflush(stdout)
+        getPlayingFunc?(DispatchQueue.main) { playing in
+            let finish: () -> Void = {
+                sysPlaying = playing
+                let title = info["kMRMediaRemoteNowPlayingInfoTitle"] as? String ?? ""
+                // Player quit / queue emptied: MediaRemote pushes an EMPTY info
+                // dict. The app must be told explicitly or it keeps showing the
+                // last track forever.
+                guard !title.isEmpty else {
+                    if hadTrack {
+                        hadTrack = false
+                        lastSignature = ""
+                        fputs("{\"cleared\":true}\n", stdout)
+                        fflush(stdout)
+                    }
+                    return
                 }
-                return
+                hadTrack = true
+                lastPlaybackRate = info["kMRMediaRemoteNowPlayingInfoPlaybackRate"] as? Double ?? 0
+                let payload: [String: Any] = [
+                    "title": title,
+                    "artist": info["kMRMediaRemoteNowPlayingInfoArtist"] as? String ?? "",
+                    "album": info["kMRMediaRemoteNowPlayingInfoAlbum"] as? String ?? "",
+                    "duration": info["kMRMediaRemoteNowPlayingInfoDuration"] as? TimeInterval ?? 0,
+                    "elapsedTime": info["kMRMediaRemoteNowPlayingInfoElapsedTime"] as? TimeInterval ?? 0,
+                    "playbackRate": lastPlaybackRate,
+                    "playing": sysPlaying,
+                ]
+                // Dedup on the state signature (NOT including frozen elapsed time):
+                // a paused QQ Music streams the identical info dict every poll, and
+                // a real pause shows up as a playing:true→false signature change.
+                let signature = "\(title)|\(sysPlaying)|\(lastPlaybackRate)"
+                guard signature != lastSignature,
+                      let data = try? JSONSerialization.data(withJSONObject: payload),
+                      let line = String(data: data, encoding: .utf8) else { return }
+                lastSignature = signature
+                // stdout is a pipe when driven by the app — print's buffering would
+                // delay lines, so write + explicit flush.
+                fputs(line + "\n", stdout)
+                fflush(stdout)
             }
-            hadTrack = true
-            lastPlaybackRate = info["kMRMediaRemoteNowPlayingInfoPlaybackRate"] as? Double ?? 0
-            let payload: [String: Any] = [
-                "title": title,
-                "artist": info["kMRMediaRemoteNowPlayingInfoArtist"] as? String ?? "",
-                "album": info["kMRMediaRemoteNowPlayingInfoAlbum"] as? String ?? "",
-                "duration": info["kMRMediaRemoteNowPlayingInfoDuration"] as? TimeInterval ?? 0,
-                "elapsedTime": info["kMRMediaRemoteNowPlayingInfoElapsedTime"] as? TimeInterval ?? 0,
-                "playbackRate": lastPlaybackRate,
-                "playing": sysPlaying,
-            ]
-            // Dedup on the state signature (NOT including frozen elapsed time):
-            // a paused QQ Music streams the identical info dict every poll, and
-            // a real pause shows up as a playing:true→false signature change.
-            let signature = "\(title)|\(sysPlaying)|\(lastPlaybackRate)"
-            guard signature != lastSignature,
-                  let data = try? JSONSerialization.data(withJSONObject: payload),
-                  let line = String(data: data, encoding: .utf8) else { return }
-            lastSignature = signature
-            // stdout is a pipe when driven by the app — print's buffering would
-            // delay lines, so write + explicit flush.
-            fputs(line + "\n", stdout)
-            fflush(stdout)
-        }
-        if let getPlayingFunc {
-            getPlayingFunc(DispatchQueue.main) { finish($0) }
-        } else {
-            finish(nil)
+            // Player pid travels separately (changes when the user switches
+            // players) — piggybacked outside the signature-dedup gate.
+            if let getPIDFunc {
+                getPIDFunc(DispatchQueue.main) { pid in
+                    let payloadPID = ["playerPID": Int(pid)]
+                    if let data = try? JSONSerialization.data(withJSONObject: payloadPID),
+                       let line = String(data: data, encoding: .utf8) {
+                        fputs(line + "\n", stdout)
+                        fflush(stdout)
+                    }
+                    finish()
+                }
+            } else {
+                finish()
+            }
         }
     }
 }

@@ -27,6 +27,9 @@ final class NowPlayingMonitor {
     private(set) var artist = ""
     private(set) var album = ""
     private(set) var artwork: NSImage?
+    /// The playing app's own icon — cover fallback for players (QQ Music &
+    /// friends) that provide no artwork through MediaRemote.
+    private(set) var appIcon: NSImage?
     private(set) var duration: TimeInterval = 0
     private(set) var elapsedTime: TimeInterval = 0
     private(set) var playbackRate: Double = 0
@@ -79,9 +82,11 @@ final class NowPlayingMonitor {
     // MARK: - Activation
 
     private func syncActivation() {
+        npDebug("syncActivation: isEnabled=\(isEnabled) activated=\(activated)")
         if isEnabled, !activated {
             activate()
         } else if !isEnabled, activated {
+            npDebug("syncActivation → deactivate")
             deactivate()
         }
     }
@@ -129,6 +134,7 @@ final class NowPlayingMonitor {
     }
 
     private func probeDidExit() {
+        npDebug("probeDidExit: process exited, activated=\(activated)")
         process = nil
         stdinHandle = nil
         stdoutBufferReset()
@@ -177,6 +183,7 @@ final class NowPlayingMonitor {
         artist = ""
         album = ""
         artwork = nil
+        appIcon = nil
         duration = 0
         elapsedTime = 0
         playbackRate = 0
@@ -213,8 +220,28 @@ final class NowPlayingMonitor {
                 clearTrack()
                 continue
             }
+            // The playing app's pid arrives as its own line (outside the
+            // track-dedup gate so player switches always propagate).
+            if let pid = json["playerPID"] as? Int32 {
+                updateAppIcon(for: pid)
+                continue
+            }
             applyProbeUpdate(json)
         }
+    }
+
+    /// Cover fallback: the playing player's own app icon (NSRunningApplication
+    /// serves the icns representation; cached per pid — icons never change).
+    private var appIconCache: [pid_t: NSImage] = [:]
+
+    private func updateAppIcon(for pid: pid_t) {
+        guard appIconCache[pid] == nil else {
+            appIcon = appIconCache[pid]
+            return
+        }
+        let icon = NSRunningApplication(processIdentifier: pid)?.icon
+        appIconCache[pid] = icon
+        appIcon = icon
     }
 
     private func applyProbeUpdate(_ json: [String: Any]) {
