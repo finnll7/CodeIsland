@@ -60,7 +60,9 @@ final class CalendarMonitor {
         let isInProgress: Bool
     }
 
-    /// The event currently in progress, or the next one starting today.
+    /// The event currently in progress, the next one today, or — when nothing
+    /// is ahead — the most recently ended one (so the card never vanishes on
+    /// a successful grant).
     private(set) var displayEvent: DisplayEvent?
     /// Events still ahead today (started-or-starting after `now`).
     private(set) var todayRemainingCount = 0
@@ -149,6 +151,12 @@ final class CalendarMonitor {
                 if granted, self.activated {
                     self.startObserving()
                     self.refreshEvents()
+                    // EventKit may not have finished loading the store right
+                    // after consent — one delayed re-query covers it
+                    // (.EKEventStoreChanged also refreshes later).
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                        Task { @MainActor in self?.refreshEvents() }
+                    }
                 }
             }
         }
@@ -200,9 +208,12 @@ final class CalendarMonitor {
     func refreshEvents() {
         guard isAuthorized else { return }
         let now = Date()
+        // Look back 2h so a just-ended event still shows ("最近的一个日程"),
+        // forward through tomorrow for the next-up case.
+        let windowStart = now.addingTimeInterval(-2 * 3600)
         let endOfTomorrow = Calendar.current.startOfDay(for: now)
             .addingTimeInterval(2 * 24 * 3600)
-        let predicate = store.predicateForEvents(withStart: now, end: endOfTomorrow, calendars: nil)
+        let predicate = store.predicateForEvents(withStart: windowStart, end: endOfTomorrow, calendars: nil)
         cachedEvents = store.events(matching: predicate)
             .filter { !$0.isAllDay }
             .sorted { $0.startDate < $1.startDate }
@@ -231,6 +242,15 @@ final class CalendarMonitor {
                 end: next.endDate,
                 isInProgress: false
             )
+        } else if let lastEnded = cachedEvents.last {
+            // Nothing ahead (evening, or a free tomorrow) — show the most
+            // recently ended event instead of hiding the card entirely.
+            displayEvent = DisplayEvent(
+                title: lastEnded.title ?? "",
+                start: lastEnded.startDate,
+                end: lastEnded.endDate,
+                isInProgress: false
+            )
         } else {
             displayEvent = nil
         }
@@ -256,6 +276,10 @@ extension CalendarMonitor {
                 return l10nMin("calendar_ending_now", 0)
             }
             return l10nMin("calendar_remaining_min", remaining)
+        }
+        // Already ended (the "most recent" fallback state).
+        if event.end < now {
+            return localize("calendar_ended")
         }
         let minutes = max(0, Int(event.start.timeIntervalSince(now) / 60))
         if minutes < 1 {

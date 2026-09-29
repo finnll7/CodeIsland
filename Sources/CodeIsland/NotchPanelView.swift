@@ -131,6 +131,9 @@ struct NotchPanelView: View {
 
     /// Delayed hover: prevents accidental expansion when mouse passes through
     @State private var hoverTimer: Timer?
+    /// Idle-expansion timer — separate from `hoverTimer`, which doubles as the
+    /// un-hover delay for the idle indicator bar itself.
+    @State private var idleExpandTimer: Timer?
     @State private var isHovered = false
     @State private var idleHovered = false
     /// Three-stage hover: collapsed → prehover (immediate ack) → expanded (after delay)
@@ -337,6 +340,25 @@ struct NotchPanelView: View {
                     }
                 }
             }
+            // Idle expansion (no sessions): the collapsed bar's own hover
+            // handlers don't run in this state, so the expanded container
+            // collapses itself when the pointer leaves.
+            .onHover { hovering in
+                guard appState.sessions.isEmpty, appState.surface == .sessionList else { return }
+                if !hovering {
+                    idleExpandTimer?.invalidate()
+                    idleExpandTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { _ in
+                        Task { @MainActor in
+                            guard appState.sessions.isEmpty, appState.surface == .sessionList else { return }
+                            withAnimation(NotchAnimation.close) {
+                                appState.surface = .collapsed
+                            }
+                        }
+                    }
+                } else {
+                    idleExpandTimer?.invalidate()
+                }
+            }
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { cardSpace.recordPanelHeight($0) }
             .frame(width: panelWidth)
             .clipped()
@@ -383,7 +405,24 @@ struct NotchPanelView: View {
                         hoverTimer?.invalidate()
                         hoverTimer = nil
                         withAnimation(NotchAnimation.micro) { idleHovered = true }
+                        // Idle expansion: the panel now hosts ambient cards (Now
+                        // Playing, calendar) — hovering the indicator opens it
+                        // even with no sessions running.
+                        idleExpandTimer?.invalidate()
+                        idleExpandTimer = Timer.scheduledTimer(
+                            withTimeInterval: NotchHoverInteraction.expandDelay(forSetting: hoverExpandDelay),
+                            repeats: false
+                        ) { _ in
+                            Task { @MainActor in
+                                // Guard: mouse may have left during the delay
+                                guard idleHovered else { return }
+                                withAnimation(NotchAnimation.open) {
+                                    appState.surface = .sessionList
+                                }
+                            }
+                        }
                     } else {
+                        idleExpandTimer?.invalidate()
                         hoverTimer?.invalidate()
                         hoverTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { _ in
                             Task { @MainActor in
