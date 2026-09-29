@@ -20,6 +20,10 @@
 	<string>1.0.35</string>
 	<key>LSUIElement</key>
 	<true/>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>在灵动岛显示你日历中即将开始与正在进行的日程。</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>在灵动岛显示你日历中即将开始与正在进行的日程。</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>

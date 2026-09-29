@@ -347,6 +347,8 @@ final class AppState {
     /// System Now-Playing info (MediaRemote private framework) — footer music
     /// card with playback controls; gated by the showNowPlaying setting.
     let nowPlaying = NowPlayingMonitor()
+    /// Today's calendar events (EventKit) — header card; gated by showCalendar.
+    let calendar = CalendarMonitor()
     /// Process-wide, not per-instance: the scan reads one shared history
     /// (`~/.claude`), so two concurrent runs are always duplicate work. Production
     /// has a single AppState and never noticed, but anything constructing several —

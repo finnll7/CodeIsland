@@ -2169,6 +2169,19 @@ private struct SessionListView: View {
                     .padding(.top, 10)
                     .padding(.bottom, 4)
             }
+            // Calendar card right under it — an in-progress or next event.
+            if appState.calendar.needsGrant, onlySessionId == nil {
+                CalendarGrantCard(monitor: appState.calendar)
+                    .padding(.horizontal, 12)
+                    .padding(.top, appState.nowPlaying.isLive ? 4 : 10)
+                    .padding(.bottom, 4)
+            } else if appState.calendar.isLive, onlySessionId == nil,
+               let event = appState.calendar.displayEvent {
+                CalendarHeaderCard(monitor: appState.calendar, event: event)
+                    .padding(.horizontal, 12)
+                    .padding(.top, appState.nowPlaying.isLive ? 4 : 10)
+                    .padding(.bottom, 4)
+            }
             if needsScroll {
                 ThinScrollView(maxHeight: CGFloat(maxVisibleSessions) * 90) {
                     content
@@ -2342,6 +2355,139 @@ private struct NowPlayingHeaderCard: View {
     private func formatTime(_ time: TimeInterval) -> String {
         let total = Int(time.rounded())
         return String(format: "%d:%02d", total / 60, total % 60)
+    }
+}
+
+// MARK: - Calendar (today's events via EventKit)
+
+private struct CalendarHeaderCard: View {
+    let monitor: CalendarMonitor
+    let event: CalendarMonitor.DisplayEvent
+    @ObservedObject private var l10n = L10n.shared
+    @State private var now = Date()
+
+    var body: some View {
+        VStack(spacing: 9) {
+            HStack(spacing: 12) {
+                calendarBadge
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(event.title.isEmpty ? l10n["calendar_untitled"] : event.title)
+                        .font(.system(size: 12, weight: .semibold))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .help(event.title)
+                    Text(subtitle)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.white.opacity(0.55))
+                        .lineLimit(1)
+                }
+                Spacer()
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text(timeRange)
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.6))
+                    if monitor.todayRemainingCount > 0 {
+                        Text(l10nMin("calendar_today_remaining", monitor.todayRemainingCount))
+                            .font(.system(size: 9))
+                            .foregroundStyle(.white.opacity(0.45))
+                    }
+                }
+            }
+            if let fraction = CalendarMonitor.progressFraction(event: event, now: now) {
+                GeometryReader { proxy in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(.white.opacity(0.15))
+                        Capsule()
+                            .fill(.white.opacity(0.85))
+                            .frame(width: max(0, proxy.size.width * fraction))
+                    }
+                }
+                .frame(height: 4)
+            }
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(.white.opacity(0.05))
+        )
+    }
+
+    private var calendarBadge: some View {
+        let base = RoundedRectangle(cornerRadius: 8)
+        return ZStack {
+            base.fill(.white.opacity(0.12))
+            VStack(spacing: 0) {
+                // Month header strip + day number, a tiny calendar face.
+                Text(now.formatted(.dateTime.month(.abbreviated)))
+                    .font(.system(size: 8, weight: .bold))
+                    .textCase(.uppercase)
+                    .foregroundStyle(.red.opacity(0.9))
+                Text(now.formatted(.dateTime.day()))
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.9))
+            }
+        }
+        .frame(width: 44, height: 44)
+    }
+
+    private var subtitle: String {
+        CalendarMonitor.countdownText(event: event, now: now) { l10n[$0] }
+    }
+
+    private var timeRange: String {
+        let style = Date.FormatStyle.dateTime.hour(.twoDigits(amPM: .omitted)).minute()
+        let start = event.start.formatted(style)
+        let end = event.end.formatted(style)
+        return "\(start) – \(end)"
+    }
+
+    private func l10nMin(_ key: String, _ count: Int) -> String {
+        (l10n[key] ?? key).replacingOccurrences(of: "%d", with: "\(count)")
+    }
+}
+
+/// Shown when Calendar access has not been granted (or was denied): the user
+/// opts in explicitly — there is deliberately no automatic permission request
+/// (an ignored dialog + EventKit's own defaults writes caused a request storm).
+private struct CalendarGrantCard: View {
+    let monitor: CalendarMonitor
+    @ObservedObject private var l10n = L10n.shared
+
+    var body: some View {
+        HStack(spacing: 12) {
+            let base = RoundedRectangle(cornerRadius: 8)
+            base.fill(.white.opacity(0.12))
+                .frame(width: 44, height: 44)
+                .overlay {
+                    Image(systemName: "calendar")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.6))
+                }
+            VStack(alignment: .leading, spacing: 3) {
+                Text(l10n["calendar_grant_title"])
+                    .font(.system(size: 12, weight: .semibold))
+                Text(l10n["calendar_grant_desc"])
+                    .font(.system(size: 10))
+                    .foregroundStyle(.white.opacity(0.55))
+                    .lineLimit(2)
+            }
+            Spacer()
+            Button {
+                monitor.requestAccess()
+            } label: {
+                Text(l10n["calendar_grant_button"])
+                    .font(.system(size: 11, weight: .semibold))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+            }
+            .buttonStyle(.plain)
+            .background(Capsule().fill(Color.white.opacity(0.16)))
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(.white.opacity(0.05))
+        )
     }
 }
 

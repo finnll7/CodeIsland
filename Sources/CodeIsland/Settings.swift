@@ -98,6 +98,9 @@ enum SettingsKey {
     // Now-Playing footer (system media info via the MediaRemote framework)
     static let showNowPlaying = "showNowPlaying"
 
+    // Calendar header card (today's events via EventKit)
+    static let showCalendar = "showCalendar"
+
     // Completion notification: "expand" | "glance" | "off". Successor of the
     // boolean autoExpandOnCompletion — see AppState.completionStyle migration.
     static let completionNotificationStyle = "completionNotificationStyle"
@@ -226,6 +229,7 @@ struct SettingsDefaults {
     static let showClaudeQuota = false
     static let showPandaQuota = false
     static let showNowPlaying = true
+    static let showCalendar = true
 
     static let rotationInterval = 5
 
@@ -331,6 +335,7 @@ class SettingsManager {
             SettingsKey.showClaudeQuota: SettingsDefaults.showClaudeQuota,
             SettingsKey.showPandaQuota: SettingsDefaults.showPandaQuota,
             SettingsKey.showNowPlaying: SettingsDefaults.showNowPlaying,
+            SettingsKey.showCalendar: SettingsDefaults.showCalendar,
             SettingsKey.rotationInterval: SettingsDefaults.rotationInterval,
             SettingsKey.maxToolHistory: SettingsDefaults.maxToolHistory,
             SettingsKey.showTaskProgress: SettingsDefaults.showTaskProgress,
