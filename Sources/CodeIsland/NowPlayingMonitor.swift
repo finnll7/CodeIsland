@@ -227,7 +227,14 @@ final class NowPlayingMonitor {
         duration = json["duration"] as? TimeInterval ?? 0
         elapsedTime = json["elapsedTime"] as? TimeInterval ?? 0
         playbackRate = json["playbackRate"] as? Double ?? 0
-        isPlaying = playbackRate > 0
+        // The probe reports the per-app system playing bit — QQ Music & co.
+        // freeze their MediaRemote info on pause (playbackRate stays 1), so
+        // rate>0 alone would never register a pause.
+        if let playing = json["playing"] as? Bool {
+            isPlaying = playing
+        } else {
+            isPlaying = playbackRate > 0
+        }
         hasTrack = true
         syncProgressTimer()
     }
