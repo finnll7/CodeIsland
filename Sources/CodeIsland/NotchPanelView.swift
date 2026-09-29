@@ -2291,6 +2291,8 @@ private struct NowPlayingHeaderCard: View {
                             .frame(width: 5, height: 5)
                         Text(monitor.title)
                             .font(.system(size: 12, weight: .semibold))
+                            // Explicit white — see the calendar card's same fix.
+                            .foregroundStyle(.white.opacity(0.95))
                             .lineLimit(1)
                             .truncationMode(.tail)
                             .help(monitor.title)
@@ -2437,6 +2439,20 @@ private struct ExternalModelFooterLine: View {
 
 // MARK: - Calendar (today's events via EventKit)
 
+/// TEMP diagnostic: unified log proved unreliable; UI-layer facts go to file.
+private func npCalDebug(_ message: String) -> some View {
+    let line = "[\(Date().formatted(date: .omitted, time: .standard))] UI: \(message)\n"
+    let path = "/tmp/codeisland-calendar.log"
+    if let handle = FileHandle(forWritingAtPath: path) {
+        defer { try? handle.close() }
+        _ = try? handle.seekToEnd()
+        try? handle.write(contentsOf: Data(line.utf8))
+    } else {
+        try? Data(line.utf8).write(to: URL(fileURLWithPath: path))
+    }
+    return EmptyView()
+}
+
 private struct CalendarHeaderCard: View {
     let monitor: CalendarMonitor
     let event: CalendarMonitor.DisplayEvent
@@ -2444,12 +2460,16 @@ private struct CalendarHeaderCard: View {
     @State private var now = Date()
 
     var body: some View {
+        npCalDebug("header render: title=\(event.title.debugDescription) allDay=\(event.isAllDay) progress=\(event.isInProgress)")
         VStack(spacing: 9) {
             HStack(spacing: 12) {
                 calendarBadge
                 VStack(alignment: .leading, spacing: 3) {
                     Text(event.title.isEmpty ? l10n["calendar_untitled"] : event.title)
                         .font(.system(size: 12, weight: .semibold))
+                        // Explicit white: the inherited .primary is BLACK on a
+                        // light-mode system, invisible on the dark panel.
+                        .foregroundStyle(.white.opacity(0.95))
                         .lineLimit(1)
                         .truncationMode(.tail)
                         .help(event.title)
@@ -2553,6 +2573,7 @@ private struct CalendarGrantCard: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(l10n["calendar_grant_title"])
                     .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.95))
                 Text(l10n["calendar_grant_desc"])
                     .font(.system(size: 10))
                     .foregroundStyle(.white.opacity(0.55))
@@ -2564,6 +2585,7 @@ private struct CalendarGrantCard: View {
             } label: {
                 Text(l10n["calendar_grant_button"])
                     .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.9))
                     .padding(.horizontal, 12)
                     .padding(.vertical, 7)
             }

@@ -219,7 +219,12 @@ final class CalendarMonitor {
         let windowEnd = now.addingTimeInterval(7 * 24 * 3600)
         let predicate = store.predicateForEvents(withStart: windowStart, end: windowEnd, calendars: nil)
         cachedEvents = store.events(matching: predicate)
+            .filter { !$0.isAllDay == false } // keep all; all-day INCLUDED
             .sorted { $0.startDate < $1.startDate }
+        calDebug("refreshEvents: queried \(cachedEvents.count) events, authorized=\(isAuthorized)")
+        for e in cachedEvents.prefix(5) {
+            calDebug("  event: title=\((e.title ?? "").debugDescription) allDay=\(e.isAllDay) start=\(e.startDate)")
+        }
         rederiveDisplay()
     }
 
@@ -236,8 +241,12 @@ final class CalendarMonitor {
         todayRemainingCount = upcoming.filter { calendar.isDate($0.startDate, inSameDayAs: now) }.count
 
         func display(_ event: EKEvent, inProgress: Bool) -> DisplayEvent {
-            DisplayEvent(
-                title: event.title ?? "",
+            let rawTitle = event.title ?? ""
+            // Diagnosis for "card shows no title":节假日订阅日历的事件 title
+            // 可能为空或纯空白。
+            calDebug("event: title=\(rawTitle.debugDescription) allDay=\(event.isAllDay) start=\(event.startDate)")
+            return DisplayEvent(
+                title: rawTitle.trimmingCharacters(in: .whitespacesAndNewlines),
                 start: event.startDate,
                 end: event.endDate,
                 isInProgress: inProgress,
