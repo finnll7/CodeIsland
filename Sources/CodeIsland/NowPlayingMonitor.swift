@@ -1,17 +1,25 @@
 import AppKit
 import Foundation
+import os.log
 
-/// Now-Playing probe backed by the MediaRemote private framework, loaded with
-/// dlopen at runtime (no link-time dependency, degrades silently when Apple
-/// renames/withdraws symbols). Ported from SuperIsland's NowPlayingManager,
-/// trimmed to the system-media path: register for MediaRemote notifications,
-/// fetch track info, advance elapsed time locally while playing, and send
-/// playback commands. SuperIsland's AppleScript/Chrome-tab/adapter branches
-/// are deliberately not carried over.
+private let npLog = Logger(subsystem: "com.codeisland", category: "nowplaying")
+
+/// Now-Playing data driven by the MediaRemote framework **through a child
+/// process** (`swift NowPlayingProbe.swift`, interpreted — see that file).
 ///
-/// Lifecycle: the monitor runs process-wide and gates itself on the
-/// `showNowPlaying` setting — disabled clears the track state and stops
-/// observing; enabling re-arms. The footer reads `isLive` to show itself.
+/// Why a child process: mediaremoted on this OS only serves Now Playing data
+/// to Apple-signed callers. Our self-signed app (and every compiled probe
+/// variant) gets "Operation not permitted", while interpreted Swift runs
+/// inside swift-frontend — an Apple-signed toolchain binary — and receives
+/// full track data (verified live). The probe speaks JSON Lines on stdout and
+/// takes playback commands on stdin.
+///
+/// Design notes:
+/// - The probe needs ~3-5s of swift-driver compile time on first start; the
+///   card appears once data arrives.
+/// - If the probe dies it is restarted (bounded retries) — losing it must
+///   never wedge the app.
+/// - Elapsed time is app-local advanced between probe updates for smooth UI.
 @MainActor
 @Observable
 final class NowPlayingMonitor {
@@ -23,33 +31,40 @@ final class NowPlayingMonitor {
     private(set) var elapsedTime: TimeInterval = 0
     private(set) var playbackRate: Double = 0
     private(set) var isPlaying = false
-    /// Human-facing source label; MediaRemote itself doesn't name the player.
-    private(set) var sourceName = ""
-    /// True once MediaRemote delivered at least one track — drives UI visibility.
+    /// Human-facing source label; the probe does not identify the player.
+    private(set) var sourceName = "MediaRemote"
+    /// True once the probe delivered at least one track — drives UI visibility.
     private(set) var hasTrack = false
 
     var isEnabled: Bool {
-        UserDefaults.standard.bool(forKey: SettingsKey.showNowPlaying)
+        // Do NOT use bool(forKey:) alone: registerDefaults runs lazily inside
+        // SettingsManager.shared and may execute AFTER this monitor's init —
+        // an unregistered key reads false and register() fires no change
+        // notification, leaving the monitor dormant forever. Fall back to the
+        // built-in default so initialization order is irrelevant.
+        UserDefaults.standard.object(forKey: SettingsKey.showNowPlaying) as? Bool
+            ?? SettingsDefaults.showNowPlaying
     }
 
-    /// UI visibility: the setting is on AND MediaRemote actually gave us a track.
+    /// UI visibility: the setting is on AND the probe delivered a track.
     var isLive: Bool {
         isEnabled && hasTrack
     }
 
-    private var registerFunc: (@convention(c) (DispatchQueue) -> Void)?
-    private var getInfoFunc: (@convention(c) (DispatchQueue, @escaping ([String: Any]) -> Void) -> Void)?
-    private var sendCommandFunc: (@convention(c) (UInt32, UnsafeMutableRawPointer?) -> Bool)?
-    private var setElapsedTimeFunc: (@convention(c) (Double) -> Void)?
-
+    private var process: Process?
+    private var stdinHandle: FileHandle?
+    private var lineBuffer = Data()
+    private var activated = false
+    private var restartCount = 0
+    private var restartTask: Task<Void, Never>?
     private var progressTimer: Timer?
     private var lastTickDate: Date?
-    private var notificationTokens: [NSObjectProtocol] = []
     private var defaultsToken: NSObjectProtocol?
-    private var activated = false
+
+    /// Bounded restarts so a fundamentally broken probe cannot spin forever.
+    private let maxRestarts = 5
 
     init() {
-        loadMediaRemote()
         defaultsToken = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification, object: nil, queue: .main
         ) { [weak self] _ in
@@ -59,7 +74,7 @@ final class NowPlayingMonitor {
     }
 
     // No deinit: the monitor lives as long as AppState (process lifetime), and
-    // a deinit could not touch the MainActor-isolated timer/observers anyway.
+    // a deinit could not touch the MainActor-isolated process/timer state.
 
     // MARK: - Activation
 
@@ -72,35 +87,92 @@ final class NowPlayingMonitor {
     }
 
     private func activate() {
-        // Without MediaRemote there is nothing to observe — stay dormant so the
-        // footer never shows, and retry nothing (symbols don't come back).
-        guard registerFunc != nil, getInfoFunc != nil else { return }
-        activated = true
-        registerFunc?(DispatchQueue.main)
-        let center = NotificationCenter.default
-        for name in [
-            "kMRMediaRemoteNowPlayingInfoDidChangeNotification",
-            "kMRMediaRemoteNowPlayingApplicationIsPlayingDidChangeNotification",
-            "kMRMediaRemoteNowPlayingApplicationDidChangeNotification",
-        ] {
-            notificationTokens.append(center.addObserver(
-                forName: NSNotification.Name(name), object: nil, queue: .main
-            ) { [weak self] _ in
-                Task { @MainActor in self?.fetchNowPlayingInfo() }
-            })
+        guard let swiftURL = Self.swiftExecutableURL(),
+              let probeURL = Self.probeScriptURL() else {
+            npLog.error("activate: swift toolchain or probe script missing, staying dormant")
+            npDebug("activate: missing (swift=\(Self.swiftExecutableURL() != nil) probe=\(Self.probeScriptURL() != nil))")
+            return
         }
-        fetchNowPlayingInfo()
+        npDebug("activate: launching probe (restartCount=\(restartCount))")
+        activated = true
+
+        let proc = Process()
+        proc.executableURL = swiftURL
+        proc.arguments = [probeURL.path]
+        let stdoutPipe = Pipe()
+        let stdinPipe = Pipe()
+        proc.standardOutput = stdoutPipe
+        proc.standardInput = stdinPipe
+        proc.standardError = FileHandle.nullDevice
+
+        proc.terminationHandler = { [weak self] _ in
+            Task { @MainActor in self?.probeDidExit() }
+        }
+
+        do {
+            try proc.run()
+        } catch {
+            npLog.error("probe launch failed: \(error.localizedDescription, privacy: .public)")
+            npDebug("launch failed: \(error.localizedDescription)")
+            activated = false
+            scheduleRestart()
+            return
+        }
+
+        process = proc
+        stdinHandle = stdinPipe.fileHandleForWriting
+        stdoutPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            guard !data.isEmpty else { return }
+            Task { @MainActor in self?.consumeProbeData(data) }
+        }
+    }
+
+    private func probeDidExit() {
+        process = nil
+        stdinHandle = nil
+        stdoutBufferReset()
+        stopProgressTimer()
+        guard activated else { return }
+        scheduleRestart()
+    }
+
+    /// Restart with bounded retries; the counter resets once a probe has
+    /// delivered data (a healthy long-lived run).
+    private func scheduleRestart() {
+        guard restartCount < maxRestarts else {
+            npLog.error("probe restart limit reached (\(self.restartCount)); now-playing stays off this launch")
+            npDebug("restart limit reached")
+            return
+        }
+        restartCount += 1
+        let delay = TimeInterval(2 + restartCount) // backoff: 3s, 4s, …
+        restartTask?.cancel()
+        restartTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            guard !Task.isCancelled, self?.activated == true else { return }
+            npDebug("restarting probe (attempt \(self?.restartCount ?? 0))")
+            self?.activate()
+        }
     }
 
     private func deactivate() {
         activated = false
-        for token in notificationTokens { NotificationCenter.default.removeObserver(token) }
-        notificationTokens.removeAll()
+        restartTask?.cancel()
+        restartTask = nil
+        if let process, process.isRunning {
+            // SIGTERM the swift driver; the interpret session dies with it.
+            process.terminate()
+        }
+        process = nil
+        stdinHandle = nil
+        stdoutBufferReset()
         stopProgressTimer()
         clearTrack()
     }
 
     private func clearTrack() {
+        stopProgressTimer()
         title = ""
         artist = ""
         album = ""
@@ -109,63 +181,61 @@ final class NowPlayingMonitor {
         elapsedTime = 0
         playbackRate = 0
         isPlaying = false
-        sourceName = ""
         hasTrack = false
     }
 
-    // MARK: - MediaRemote loading
+    // MARK: - Probe output
 
-    private func loadMediaRemote() {
-        let handle = dlopen("/System/Library/PrivateFrameworks/MediaRemote.framework/MediaRemote", RTLD_NOW)
-        guard let handle else { return }
-        if let sym = dlsym(handle, "MRMediaRemoteRegisterForNowPlayingNotifications") {
-            registerFunc = unsafeBitCast(sym, to: (@convention(c) (DispatchQueue) -> Void).self)
-        }
-        if let sym = dlsym(handle, "MRMediaRemoteGetNowPlayingInfo") {
-            getInfoFunc = unsafeBitCast(
-                sym,
-                to: (@convention(c) (DispatchQueue, @escaping ([String: Any]) -> Void) -> Void).self
-            )
-        }
-        if let sym = dlsym(handle, "MRMediaRemoteSendCommand") {
-            sendCommandFunc = unsafeBitCast(sym, to: (@convention(c) (UInt32, UnsafeMutableRawPointer?) -> Bool).self)
-        }
-        if let sym = dlsym(handle, "MRMediaRemoteSetElapsedTime") {
-            setElapsedTimeFunc = unsafeBitCast(sym, to: (@convention(c) (Double) -> Void).self)
+    private var stdoutBuffer = Data()
+
+    private func stdoutBufferReset() {
+        stdoutBuffer = Data()
+    }
+
+    private func consumeProbeData(_ data: Data) {
+        stdoutBuffer.append(data)
+        // Split on newlines; keep the trailing partial line in the buffer.
+        while let newline = stdoutBuffer.firstIndex(of: 0x0A) {
+            let lineData = stdoutBuffer[..<newline]
+            stdoutBuffer = Data(stdoutBuffer[stdoutBuffer.index(after: newline)...])
+            guard !lineData.isEmpty,
+                  let line = String(data: Data(lineData), encoding: .utf8)?
+                  .trimmingCharacters(in: .whitespacesAndNewlines),
+                  !line.isEmpty,
+                  let json = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any] else {
+                continue
+            }
+            // Player quit / queue emptied — the probe reports it explicitly so
+            // the card disappears instead of showing a stale forever-playing
+            // track.
+            if (json["cleared"] as? Bool) == true {
+                stopProgressTimer()
+                clearTrack()
+                continue
+            }
+            applyProbeUpdate(json)
         }
     }
 
-    // MARK: - Track info
-
-    func fetchNowPlayingInfo() {
-        getInfoFunc?(DispatchQueue.main) { [weak self] info in
-            Task { @MainActor in self?.applyNowPlayingInfo(info) }
-        }
-    }
-
-    private func applyNowPlayingInfo(_ info: [String: Any]) {
-        let newTitle = info["kMRMediaRemoteNowPlayingInfoTitle"] as? String ?? ""
+    private func applyProbeUpdate(_ json: [String: Any]) {
+        let newTitle = json["title"] as? String ?? ""
         guard !newTitle.isEmpty else { return }
-        let rate = info["kMRMediaRemoteNowPlayingInfoPlaybackRate"] as? Double ?? 0
+        restartCount = 0 // a healthy delivery resets the restart budget
         title = newTitle
-        artist = info["kMRMediaRemoteNowPlayingInfoArtist"] as? String ?? ""
-        album = info["kMRMediaRemoteNowPlayingInfoAlbum"] as? String ?? ""
-        duration = info["kMRMediaRemoteNowPlayingInfoDuration"] as? TimeInterval ?? 0
-        elapsedTime = info["kMRMediaRemoteNowPlayingInfoElapsedTime"] as? TimeInterval ?? 0
-        playbackRate = rate
-        isPlaying = rate > 0
-        sourceName = "MediaRemote"
+        artist = json["artist"] as? String ?? ""
+        album = json["album"] as? String ?? ""
+        duration = json["duration"] as? TimeInterval ?? 0
+        elapsedTime = json["elapsedTime"] as? TimeInterval ?? 0
+        playbackRate = json["playbackRate"] as? Double ?? 0
+        isPlaying = playbackRate > 0
         hasTrack = true
-        if let data = info["kMRMediaRemoteNowPlayingInfoArtworkData"] as? Data {
-            artwork = NSImage(data: data)
-        }
         syncProgressTimer()
     }
 
     // MARK: - Local progress ticking
 
-    /// MediaRemote only pushes on track/state changes; elapsed time is advanced
-    /// locally once per second while playing, re-synced on every notification.
+    /// The probe updates elapsed time on MediaRemote events and its 1s poll;
+    /// between updates the UI advances time locally for a smooth progress bar.
     private func syncProgressTimer() {
         stopProgressTimer()
         guard isPlaying, duration > 0 else { return }
@@ -198,30 +268,59 @@ final class NowPlayingMonitor {
         }
     }
 
-    // MARK: - Playback controls
+    // MARK: - Playback controls (stdin commands to the probe)
 
     func togglePlayPause() {
-        sendCommand(playbackRate > 0 || isPlaying ? 1 : 0) // kMRPause / kMRPlay
+        sendCommand("toggle")
         isPlaying.toggle()
         syncProgressTimer()
     }
 
     func nextTrack() {
-        sendCommand(4) // kMRNextTrack
+        sendCommand("next")
     }
 
     func previousTrack() {
-        sendCommand(5) // kMRPreviousTrack
+        sendCommand("prev")
     }
 
-    func seek(to time: TimeInterval) {
-        let clamped = max(0, min(time, duration))
-        elapsedTime = clamped
-        syncProgressTimer()
-        setElapsedTimeFunc?(clamped)
+    private func sendCommand(_ command: String) {
+        guard let stdinHandle else { return }
+        stdinHandle.write(Data((command + "\n").utf8))
     }
 
-    private func sendCommand(_ command: UInt32) {
-        _ = sendCommandFunc?(command, nil)
+    /// The probe only has artwork-free metadata today; MediaRemote's in-process
+    /// GetNowPlayingInfo is refused on this OS, so there is no second source.
+    /// (kept for future adapter extension)
+
+    // MARK: - Paths
+
+    private static func swiftExecutableURL() -> URL? {
+        let url = URL(fileURLWithPath: "/usr/bin/swift")
+        return FileManager.default.isExecutableFile(atPath: url.path) ? url : nil
+    }
+
+    private static func probeScriptURL() -> URL? {
+        // SPM .copy("Resources") keeps the Resources/ prefix inside the
+        // CodeIsland_CodeIsland bundle.
+        if let url = Bundle.appModule.url(
+            forResource: "NowPlayingProbe", withExtension: "swift", subdirectory: "Resources"
+        ) {
+            return url
+        }
+        // Dev fallback: the bundle accessor may already land us inside Resources/.
+        return Bundle.appModule.url(forResource: "NowPlayingProbe", withExtension: "swift")
+    }
+}
+
+private func npDebug(_ message: String) {
+    let line = "[\(Date().formatted(date: .omitted, time: .standard))] \(message)\n"
+    let path = "/tmp/codeisland-nowplaying.log"
+    if let handle = FileHandle(forWritingAtPath: path) {
+        defer { try? handle.close() }
+        _ = try? handle.seekToEnd()
+        try? handle.write(contentsOf: Data(line.utf8))
+    } else {
+        try? Data(line.utf8).write(to: URL(fileURLWithPath: path))
     }
 }

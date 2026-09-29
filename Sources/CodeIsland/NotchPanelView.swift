@@ -2161,6 +2161,14 @@ private struct SessionListView: View {
         .padding(.vertical, 4)
 
         VStack(spacing: 0) {
+            // Now Playing lives at the very top — ambient info first, so it is
+            // actually seen (the footer version was too easy to miss).
+            if appState.nowPlaying.isLive, onlySessionId == nil {
+                NowPlayingHeaderCard(monitor: appState.nowPlaying)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 10)
+                    .padding(.bottom, 4)
+            }
             if needsScroll {
                 ThinScrollView(maxHeight: CGFloat(maxVisibleSessions) * 90) {
                     content
@@ -2202,98 +2210,118 @@ private struct SessionListView: View {
                     PandaQuotaMessage(text: l10n["panda_quota_need_token"])
                 }
             }
-            if appState.nowPlaying.isLive, onlySessionId == nil {
-                NowPlayingFooterLine(monitor: appState.nowPlaying)
-            }
         }
     }
 }
 
-// MARK: - Now Playing (system media via MediaRemote)
+// MARK: - Now Playing (system media via MediaRemote probe)
 
-private struct NowPlayingFooterLine: View {
+/// Header card at the very top of the expanded panel — deliberately larger
+/// than the usage footer lines (this is ambient "what you're hearing" info,
+/// easy to miss at footer scale). While playing, the cover breathes gently.
+private struct NowPlayingHeaderCard: View {
     let monitor: NowPlayingMonitor
+    @State private var breathing = false
 
     var body: some View {
-        HStack(spacing: 8) {
-            artwork
-            VStack(alignment: .leading, spacing: 2) {
-                Text(monitor.title)
-                    .font(.system(size: 10, weight: .semibold))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .help(monitor.title)
-                Text(subtitle)
-                    .font(.system(size: 9))
-                    .foregroundStyle(.white.opacity(0.5))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .help(subtitle)
-            }
-            Spacer()
-            if monitor.duration > 0 {
-                Text("\(formatTime(monitor.elapsedTime)) / \(formatTime(monitor.duration))")
-                    .font(.system(size: 9, weight: .medium, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.5))
-                    .help(progressDetail)
-            }
+        VStack(spacing: 9) {
             HStack(spacing: 12) {
-                Button {
-                    monitor.previousTrack()
-                } label: {
-                    Image(systemName: "backward.fill")
-                        .font(.system(size: 10, weight: .semibold))
-                        .contentShape(Rectangle())
+                artwork
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(monitor.isPlaying ? Color.green : Color.white.opacity(0.35))
+                            .frame(width: 5, height: 5)
+                        Text(monitor.title)
+                            .font(.system(size: 12, weight: .semibold))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .help(monitor.title)
+                    }
+                    Text(subtitle)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.white.opacity(0.55))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .help(subtitle)
                 }
-                Button {
-                    monitor.togglePlayPause()
-                } label: {
-                    Image(systemName: monitor.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 12, weight: .semibold))
-                        .contentShape(Rectangle())
-                }
-                Button {
-                    monitor.nextTrack()
-                } label: {
-                    Image(systemName: "forward.fill")
-                        .font(.system(size: 10, weight: .semibold))
-                        .contentShape(Rectangle())
+                Spacer()
+                VStack(alignment: .trailing, spacing: 4) {
+                    if monitor.duration > 0 {
+                        Text("\(formatTime(monitor.elapsedTime)) / \(formatTime(monitor.duration))")
+                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            .foregroundStyle(.white.opacity(0.6))
+                    }
+                    HStack(spacing: 16) {
+                        Button {
+                            monitor.previousTrack()
+                        } label: {
+                            Image(systemName: "backward.fill")
+                                .font(.system(size: 12, weight: .semibold))
+                                .contentShape(Rectangle())
+                        }
+                        Button {
+                            monitor.togglePlayPause()
+                        } label: {
+                            Image(systemName: monitor.isPlaying ? "pause.fill" : "play.fill")
+                                .font(.system(size: 15, weight: .semibold))
+                                .contentShape(Rectangle())
+                        }
+                        Button {
+                            monitor.nextTrack()
+                        } label: {
+                            Image(systemName: "forward.fill")
+                                .font(.system(size: 12, weight: .semibold))
+                                .contentShape(Rectangle())
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.white.opacity(0.85))
                 }
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(.white.opacity(0.8))
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 6)
-        .background(
             GeometryReader { proxy in
-                // Thin progress rail along the card's bottom edge.
-                Capsule()
-                    .fill(.white.opacity(0.10))
-                    .frame(height: 2)
-                    .frame(width: proxy.size.width * progressFraction, alignment: .leading)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .frame(height: 2, alignment: .bottom)
+                ZStack(alignment: .leading) {
+                    Capsule().fill(.white.opacity(0.15))
+                    Capsule()
+                        .fill(monitor.isPlaying ? Color.white.opacity(0.9) : .white.opacity(0.45))
+                        .frame(width: max(0, proxy.size.width * progressFraction))
+                }
             }
+            .frame(height: 4)
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(.white.opacity(monitor.isPlaying ? 0.08 : 0.05))
         )
-        .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
     @ViewBuilder
     private var artwork: some View {
-        let base = RoundedRectangle(cornerRadius: 4)
+        let base = RoundedRectangle(cornerRadius: 8)
         if let art = monitor.artwork {
             Image(nsImage: art)
                 .resizable()
                 .aspectRatio(contentMode: .fill)
-                .frame(width: 24, height: 24)
+                .frame(width: 44, height: 44)
                 .clipShape(base)
+                .overlay {
+                    base.strokeBorder(.white.opacity(0.15))
+                }
+                // Breathing only while playing: the && short-circuits the
+                // oscillating `breathing` state the moment playback stops.
+                .scaleEffect(monitor.isPlaying && breathing ? 1.05 : 1.0)
+                .onAppear {
+                    withAnimation(.easeInOut(duration: 1.8).repeatForever(autoreverses: true)) {
+                        breathing = true
+                    }
+                }
         } else {
             base.fill(.white.opacity(0.12))
-                .frame(width: 24, height: 24)
+                .frame(width: 44, height: 44)
                 .overlay {
                     Image(systemName: "music.note")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(.white.opacity(0.6))
                 }
         }
@@ -2307,10 +2335,6 @@ private struct NowPlayingFooterLine: View {
     private var progressFraction: Double {
         guard monitor.duration > 0 else { return 0 }
         return min(max(monitor.elapsedTime / monitor.duration, 0), 1)
-    }
-
-    private var progressDetail: String {
-        "Progress: \(Int(progressFraction * 100))% (\(Int(monitor.playbackRate * 100))% speed)"
     }
 
     private func formatTime(_ time: TimeInterval) -> String {
