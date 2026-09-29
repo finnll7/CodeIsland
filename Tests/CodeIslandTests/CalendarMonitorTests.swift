@@ -43,6 +43,22 @@ final class CalendarMonitorTests: XCTestCase {
         XCTAssertEqual(CalendarMonitor.countdownText(event: event, now: now, localize: localize), "Starting now")
     }
 
+    func testTomorrowEventUsesTomorrowTemplate() {
+        let now = Date()
+        let start = Calendar.current.date(byAdding: .day, value: 1, to: now)!
+        let event = event(start: start, end: start.addingTimeInterval(1800), inProgress: false)
+        let text = CalendarMonitor.countdownText(event: event, now: now, localize: localize)
+        XCTAssertTrue(text.hasPrefix("Tomorrow at "), text)
+    }
+
+    func testLaterThisWeekUsesDateTemplate() {
+        let now = Date()
+        let start = Calendar.current.date(byAdding: .day, value: 4, to: now)!
+        let event = event(start: start, end: start.addingTimeInterval(1800), inProgress: false)
+        let text = CalendarMonitor.countdownText(event: event, now: now, localize: localize)
+        XCTAssertTrue(text.hasPrefix("Starts "), text)
+    }
+
     func testProgressFractionBounds() {
         let now = Date()
         let running = event(start: now.addingTimeInterval(-600), end: now.addingTimeInterval(600), inProgress: true)

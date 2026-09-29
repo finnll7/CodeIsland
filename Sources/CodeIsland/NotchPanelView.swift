@@ -2463,7 +2463,7 @@ private struct CalendarHeaderCard: View {
                     Text(timeRange)
                         .font(.system(size: 10, weight: .medium, design: .monospaced))
                         .foregroundStyle(.white.opacity(0.6))
-                    if monitor.todayRemainingCount > 0 {
+            if monitor.todayRemainingCount > 0, Calendar.current.isDate(event.start, inSameDayAs: now) {
                         Text(l10nMin("calendar_today_remaining", monitor.todayRemainingCount))
                             .font(.system(size: 9))
                             .foregroundStyle(.white.opacity(0.45))
@@ -2513,9 +2513,15 @@ private struct CalendarHeaderCard: View {
 
     private var timeRange: String {
         let style = Date.FormatStyle.dateTime.hour(.twoDigits(amPM: .omitted)).minute()
-        let start = event.start.formatted(style)
-        let end = event.end.formatted(style)
-        return "\(start) – \(end)"
+        let calendar = Calendar.current
+        // Cross-day events carry their date in the time row.
+        if !calendar.isDate(event.start, inSameDayAs: now) {
+            let day = calendar.isDateInTomorrow(event.start)
+                ? l10n["calendar_day_tomorrow"]
+                : event.start.formatted(.dateTime.month().day())
+            return "\(day) \(event.start.formatted(style)) – \(event.end.formatted(style))"
+        }
+        return "\(event.start.formatted(style)) – \(event.end.formatted(style))"
     }
 
     private func l10nMin(_ key: String, _ count: Int) -> String {

@@ -209,11 +209,11 @@ final class CalendarMonitor {
         guard isAuthorized else { return }
         let now = Date()
         // Look back 2h so a just-ended event still shows ("最近的一个日程"),
-        // forward through tomorrow for the next-up case.
+        // forward 7 days so the NEXT upcoming event is found even when today
+        // has nothing left.
         let windowStart = now.addingTimeInterval(-2 * 3600)
-        let endOfTomorrow = Calendar.current.startOfDay(for: now)
-            .addingTimeInterval(2 * 24 * 3600)
-        let predicate = store.predicateForEvents(withStart: windowStart, end: endOfTomorrow, calendars: nil)
+        let windowEnd = now.addingTimeInterval(7 * 24 * 3600)
+        let predicate = store.predicateForEvents(withStart: windowStart, end: windowEnd, calendars: nil)
         cachedEvents = store.events(matching: predicate)
             .filter { !$0.isAllDay }
             .sorted { $0.startDate < $1.startDate }
@@ -226,7 +226,8 @@ final class CalendarMonitor {
         guard isAuthorized else { return }
         let now = Date()
         let upcoming = cachedEvents.filter { $0.endDate > now }
-        todayRemainingCount = upcoming.count
+        let calendar = Calendar.current
+        todayRemainingCount = upcoming.filter { calendar.isDate($0.startDate, inSameDayAs: now) }.count
 
         if let running = upcoming.first(where: { $0.startDate <= now }) {
             displayEvent = DisplayEvent(
@@ -236,6 +237,8 @@ final class CalendarMonitor {
                 isInProgress: true
             )
         } else if let next = upcoming.first {
+            // The nearest FUTURE event on any day — today's leftovers first,
+            // otherwise tomorrow / later this week.
             displayEvent = DisplayEvent(
                 title: next.title ?? "",
                 start: next.startDate,
@@ -243,8 +246,8 @@ final class CalendarMonitor {
                 isInProgress: false
             )
         } else if let lastEnded = cachedEvents.last {
-            // Nothing ahead (evening, or a free tomorrow) — show the most
-            // recently ended event instead of hiding the card entirely.
+            // Nothing ahead at all — show the most recently ended event
+            // instead of hiding the card entirely.
             displayEvent = DisplayEvent(
                 title: lastEnded.title ?? "",
                 start: lastEnded.startDate,
@@ -261,7 +264,7 @@ final class CalendarMonitor {
 
 extension CalendarMonitor {
     /// Minute-level countdown line for the card's subtitle. `localize` looks
-    /// up an L10n key; "%d" placeholders are substituted here.
+    /// up an L10n key; "%d"/"%@" placeholders are substituted here.
     static func countdownText(
         event: DisplayEvent,
         now: Date,
@@ -284,6 +287,16 @@ extension CalendarMonitor {
         let minutes = max(0, Int(event.start.timeIntervalSince(now) / 60))
         if minutes < 1 {
             return l10nMin("calendar_starting_now", 0)
+        }
+        let calendar = Calendar.current
+        let time = event.start.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute())
+        if calendar.isDateInTomorrow(event.start) {
+            return localize("calendar_starts_tomorrow").replacingOccurrences(of: "%@", with: time)
+        }
+        if !calendar.isDate(event.start, inSameDayAs: now) {
+            // Later this week / beyond: "9/30 09:00" via the system locale.
+            let date = event.start.formatted(.dateTime.month().day().hour(.twoDigits(amPM: .omitted)).minute())
+            return localize("calendar_starts_on_date").replacingOccurrences(of: "%@", with: date)
         }
         return l10nMin("calendar_starts_in_min", minutes)
     }
