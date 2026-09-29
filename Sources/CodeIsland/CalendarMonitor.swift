@@ -58,6 +58,9 @@ final class CalendarMonitor {
         let start: Date
         let end: Date
         let isInProgress: Bool
+        /// All-day events (holidays, birthdays) carry no wall-clock time —
+        /// the card shows「全天」instead of a time range.
+        let isAllDay: Bool
     }
 
     /// The event currently in progress, the next one today, or — when nothing
@@ -210,12 +213,12 @@ final class CalendarMonitor {
         let now = Date()
         // Look back 2h so a just-ended event still shows ("最近的一个日程"),
         // forward 7 days so the NEXT upcoming event is found even when today
-        // has nothing left.
+        // has nothing left. All-day events (holidays!) are INCLUDED — they
+        // were wrongly filtered out before.
         let windowStart = now.addingTimeInterval(-2 * 3600)
         let windowEnd = now.addingTimeInterval(7 * 24 * 3600)
         let predicate = store.predicateForEvents(withStart: windowStart, end: windowEnd, calendars: nil)
         cachedEvents = store.events(matching: predicate)
-            .filter { !$0.isAllDay }
             .sorted { $0.startDate < $1.startDate }
         rederiveDisplay()
     }
@@ -225,35 +228,33 @@ final class CalendarMonitor {
     private func rederiveDisplay() {
         guard isAuthorized else { return }
         let now = Date()
-        let upcoming = cachedEvents.filter { $0.endDate > now }
         let calendar = Calendar.current
+        // An all-day event spanning today counts as in-progress from its
+        // 00:00 start; its endDate is the next midnight, so endDate > now
+        // keeps it in `upcoming` naturally.
+        let upcoming = cachedEvents.filter { $0.endDate > now }
         todayRemainingCount = upcoming.filter { calendar.isDate($0.startDate, inSameDayAs: now) }.count
 
-        if let running = upcoming.first(where: { $0.startDate <= now }) {
-            displayEvent = DisplayEvent(
-                title: running.title ?? "",
-                start: running.startDate,
-                end: running.endDate,
-                isInProgress: true
+        func display(_ event: EKEvent, inProgress: Bool) -> DisplayEvent {
+            DisplayEvent(
+                title: event.title ?? "",
+                start: event.startDate,
+                end: event.endDate,
+                isInProgress: inProgress,
+                isAllDay: event.isAllDay
             )
+        }
+
+        if let running = upcoming.first(where: { $0.startDate <= now }) {
+            displayEvent = display(running, inProgress: true)
         } else if let next = upcoming.first {
             // The nearest FUTURE event on any day — today's leftovers first,
-            // otherwise tomorrow / later this week.
-            displayEvent = DisplayEvent(
-                title: next.title ?? "",
-                start: next.startDate,
-                end: next.endDate,
-                isInProgress: false
-            )
+            // otherwise tomorrow / later this week (holidays included).
+            displayEvent = display(next, inProgress: false)
         } else if let lastEnded = cachedEvents.last {
             // Nothing ahead at all — show the most recently ended event
             // instead of hiding the card entirely.
-            displayEvent = DisplayEvent(
-                title: lastEnded.title ?? "",
-                start: lastEnded.startDate,
-                end: lastEnded.endDate,
-                isInProgress: false
-            )
+            displayEvent = display(lastEnded, inProgress: false)
         } else {
             displayEvent = nil
         }
@@ -284,12 +285,20 @@ extension CalendarMonitor {
         if event.end < now {
             return localize("calendar_ended")
         }
+        let calendar = Calendar.current
+        let time = event.start.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute())
+        // All-day events (holidays): no wall-clock time — date-only templates.
+        if event.isAllDay {
+            if calendar.isDateInTomorrow(event.start) {
+                return localize("calendar_starts_tomorrow").replacingOccurrences(of: "%@", with: localize("calendar_all_day"))
+            }
+            let date = event.start.formatted(.dateTime.month().day())
+            return localize("calendar_starts_on_date").replacingOccurrences(of: "%@", with: date)
+        }
         let minutes = max(0, Int(event.start.timeIntervalSince(now) / 60))
         if minutes < 1 {
             return l10nMin("calendar_starting_now", 0)
         }
-        let calendar = Calendar.current
-        let time = event.start.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute())
         if calendar.isDateInTomorrow(event.start) {
             return localize("calendar_starts_tomorrow").replacingOccurrences(of: "%@", with: time)
         }

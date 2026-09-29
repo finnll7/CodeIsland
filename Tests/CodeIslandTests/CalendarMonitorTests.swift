@@ -16,7 +16,15 @@ final class CalendarMonitorTests: XCTestCase {
     }
 
     private func event(start: Date, end: Date, inProgress: Bool) -> CalendarMonitor.DisplayEvent {
-        CalendarMonitor.DisplayEvent(title: "Standup", start: start, end: end, isInProgress: inProgress)
+        CalendarMonitor.DisplayEvent(title: "Standup", start: start, end: end, isInProgress: inProgress, isAllDay: false)
+    }
+
+    func testAllDayEventUsesDateOnlyTemplate() {
+        let now = Date()
+        let start = Calendar.current.date(byAdding: .day, value: 2, to: Calendar.current.startOfDay(for: now))!
+        let event = CalendarMonitor.DisplayEvent(title: "国庆节", start: start, end: start.addingTimeInterval(24 * 3600), isInProgress: false, isAllDay: true)
+        let text = CalendarMonitor.countdownText(event: event, now: now, localize: localize)
+        XCTAssertFalse(text.contains(":"), "all-day events must not show a wall-clock time: \(text)")
     }
 
     func testInProgressCountdown() {

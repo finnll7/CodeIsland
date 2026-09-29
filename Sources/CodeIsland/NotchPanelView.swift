@@ -2512,6 +2512,10 @@ private struct CalendarHeaderCard: View {
     }
 
     private var timeRange: String {
+        // All-day events (holidays) carry no wall-clock time.
+        if event.isAllDay {
+            return l10n["calendar_all_day"]
+        }
         let style = Date.FormatStyle.dateTime.hour(.twoDigits(amPM: .omitted)).minute()
         let calendar = Calendar.current
         // Cross-day events carry their date in the time row.
