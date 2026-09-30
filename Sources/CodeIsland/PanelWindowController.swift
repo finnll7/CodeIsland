@@ -166,16 +166,19 @@ class PanelWindowController: NSObject, NSWindowDelegate {
         // a redraw, which looked like "invisible after ~2s, reappears on hover" (#304).
         // The content is top-anchored and the session list scrolls internally, so the
         // window never needs to be taller than the visible screen.
-        let maxH = min(desiredH, screen.visibleFrame.height)
-        // Wake guard: right after sleep the notification fires while NSScreen
-        // still reports a degenerate frame — width collapses to single-digit
-        // points and every HStack in the panel wraps to one character per line.
-        // Fall back to the main screen until real numbers arrive.
+        // Wake/resolution-change guard: during display reconfiguration NSScreen
+        // transiently reports degenerate frames. The main-screen fallback below
+        // helps, but a wrong-but-plausible main frame could still slip through —
+        // so BOTH dimensions are hard-clamped: width never leaves [580, 620] and
+        // height never drops under 300. A rebuild on bad data then produces a
+        // slightly misplaced window instead of a collapsed one, and the
+        // follow-up wake rebuilds correct the position.
+        let maxH = min(max(desiredH, 300), max(screen.visibleFrame.height, 300))
         var screenW = screen.frame.width
-        if screenW < 500, let main = NSScreen.main {
-            screenW = main.frame.width
+        if screenW < 800, let main = NSScreen.main {
+            screenW = max(screenW, main.frame.width)
         }
-        let width = min(620, screenW - 40)
+        let width = min(620, max(screenW - 40, 580))
         return NSSize(width: width, height: maxH)
     }
 
@@ -276,6 +279,23 @@ class PanelWindowController: NSObject, NSWindowDelegate {
         panel.orderFrontRegardless()
         MascotAnimationGate.shared.setPanelVisible(true)
 
+        // Wake rebuilds: display reconfiguration after sleep arrives in waves
+        // (0.5s and 2s rebuilds can still land on degenerate frames) — two
+        // staggered rebuilds once the display is fully awake paper over all of
+        // them.
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                for delay in [2_000_000_000, 5_000_000_000] {
+                    try? await Task.sleep(nanoseconds: UInt64(delay))
+                    self?.refreshCurrentScreen(forceRebuild: true)
+                }
+            }
+        }
+
         // Screen change observer
         NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
@@ -287,20 +307,6 @@ class PanelWindowController: NSObject, NSWindowDelegate {
                 // macOS may not have finished updating NSScreen.screens when the notification fires.
                 // Rebuild again after a short delay to pick up the final screen configuration.
                 try? await Task.sleep(nanoseconds: 500_000_000)
-                self?.refreshCurrentScreen(forceRebuild: true)
-            }
-        }
-
-        // Wake: the didChangeScreenParameters rebuild above can run while the
-        // display still reports a degenerate frame (panel collapses to a
-        // sliver). Once the display is fully awake, rebuild with real numbers.
-        NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didWakeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
                 self?.refreshCurrentScreen(forceRebuild: true)
             }
         }

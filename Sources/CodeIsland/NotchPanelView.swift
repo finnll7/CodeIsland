@@ -2354,19 +2354,19 @@ private struct PandaStatsFooterLine: View {
                         Text(error)
                             .foregroundStyle(.white.opacity(0.6))
                             .lineLimit(1)
-                    } else if !quota.isConfigured {
+                        } else if !quota.isConfigured {
                         Text(l10n["panda_quota_need_token"])
                             .foregroundStyle(.white.opacity(0.6))
+                    }
                 }
                 Spacer()
-                // Reset date pinned to the trailing edge (read from the
-                // monitor so the branch-scoped snapshot doesn't shadow it).
+                // Reset date at the trailing edge — directly under the usage
+                // sparkline (read from the monitor: the branch-scoped snapshot
+                // would shadow it).
                 if let snapshot = quota.snapshot, !snapshot.windowEndLabel.isEmpty {
                     Text("↻\(snapshot.windowEndLabel)")
                         .foregroundStyle(.white.opacity(0.6))
                 }
-                }
-                Spacer()
             }
         }
         .font(.system(size: 12.5, weight: .medium, design: .monospaced))
