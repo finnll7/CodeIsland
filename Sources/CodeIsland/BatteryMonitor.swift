@@ -56,8 +56,10 @@ final class BatteryMonitor {
         var found = false
         for source in sources {
             guard let desc = IOPSGetPowerSourceDescription(snapshot, source as CFTypeRef)?
-                .takeUnretainedValue() as? [String: Any],
-                  let type = desc["Power Source"] as? String,
+                .takeUnretainedValue() as? [String: Any] else {
+                continue
+            }
+            guard let type = desc["Type"] as? String,
                   type == "InternalBattery" else {
                 continue
             }

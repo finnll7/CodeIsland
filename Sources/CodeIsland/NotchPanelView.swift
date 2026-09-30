@@ -2214,12 +2214,15 @@ private struct SessionListView: View {
                     .padding(.horizontal, 12)
                     .padding(.top, appState.nowPlaying.isLive ? 4 : 10)
                     .padding(.bottom, 4)
-            } else if appState.calendar.isLive, onlySessionId == nil,
-               let event = appState.calendar.displayEvent {
-                CalendarHeaderCard(monitor: appState.calendar, event: event)
-                    .padding(.horizontal, 12)
-                    .padding(.top, appState.nowPlaying.isLive ? 4 : 10)
-                    .padding(.bottom, 4)
+            } else if appState.calendar.isLive || appState.battery.isLive, onlySessionId == nil {
+                CalendarHeaderCard(
+                    monitor: appState.calendar,
+                    event: appState.calendar.displayEvent,
+                    battery: appState.battery
+                )
+                .padding(.horizontal, 12)
+                .padding(.top, appState.nowPlaying.isLive ? 4 : 10)
+                .padding(.bottom, 4)
             }
             if needsScroll {
                 ThinScrollView(maxHeight: CGFloat(maxVisibleSessions) * 90) {
@@ -2266,9 +2269,6 @@ private struct SessionListView: View {
                 } else if !appState.pandaQuota.isConfigured {
                     PandaQuotaMessage(text: l10n["panda_quota_need_token"])
                 }
-            }
-            if appState.battery.isLive, onlySessionId == nil {
-                BatteryFooterLine(monitor: appState.battery)
             }
         }
     }
@@ -2426,6 +2426,7 @@ private struct ExternalModelFooterLine: View {
                 .foregroundStyle(.white.opacity(0.25))
             if let balance = model.balanceText {
                 Text("\(l10n["external_balance"]) \(balance)")
+                    .fontWeight(.bold)
             } else {
                 Text(l10n["external_no_balance"])
                     .foregroundStyle(.white.opacity(0.35))
@@ -2442,91 +2443,55 @@ private struct ExternalModelFooterLine: View {
 
 // MARK: - Battery (IOKit.ps power source)
 
-private struct BatteryFooterLine: View {
-    let monitor: BatteryMonitor
-    @ObservedObject private var l10n = L10n.shared
-
-    private var levelColor: Color {
-        Color(nsColor: BatteryMonitor.levelColor(level: monitor.level, charging: monitor.isCharging))
-    }
-
-    var body: some View {
-        HStack(spacing: 5) {
-            Image(systemName: BatteryMonitor.symbol(level: monitor.level, charging: monitor.isCharging))
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(levelColor)
-            Text("\(monitor.level)%")
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                .foregroundStyle(levelColor)
-            Text("·")
-                .foregroundStyle(.white.opacity(0.3))
-            Text(monitor.isCharging
-                 ? l10n["battery_charging"]
-                 : (monitor.isPluggedIn ? l10n["battery_full_power"] : l10n["battery_on_battery"]))
-                .foregroundStyle(.white.opacity(0.85))
-            Spacer()
-        }
-        .font(.system(size: 10, weight: .medium, design: .monospaced))
-        .padding(.horizontal, 14)
-        .padding(.vertical, 5)
-        .help(l10n["battery_help"])
-    }
-}
-
 // MARK: - Calendar (today's events via EventKit)
-
-/// TEMP diagnostic: unified log proved unreliable; UI-layer facts go to file.
-private func npCalDebug(_ message: String) -> some View {
-    let line = "[\(Date().formatted(date: .omitted, time: .standard))] UI: \(message)\n"
-    let path = "/tmp/codeisland-calendar.log"
-    if let handle = FileHandle(forWritingAtPath: path) {
-        defer { try? handle.close() }
-        _ = try? handle.seekToEnd()
-        try? handle.write(contentsOf: Data(line.utf8))
-    } else {
-        try? Data(line.utf8).write(to: URL(fileURLWithPath: path))
-    }
-    return EmptyView()
-}
 
 private struct CalendarHeaderCard: View {
     let monitor: CalendarMonitor
-    let event: CalendarMonitor.DisplayEvent
+    let event: CalendarMonitor.DisplayEvent?
+    let battery: BatteryMonitor
     @ObservedObject private var l10n = L10n.shared
     @State private var now = Date()
 
     var body: some View {
-        npCalDebug("header render: title=\(event.title.debugDescription) allDay=\(event.isAllDay) progress=\(event.isInProgress)")
         VStack(spacing: 9) {
             HStack(spacing: 12) {
                 calendarBadge
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(event.title.isEmpty ? l10n["calendar_untitled"] : event.title)
-                        .font(.system(size: 12, weight: .semibold))
-                        // Explicit white: the inherited .primary is BLACK on a
-                        // light-mode system, invisible on the dark panel.
-                        .foregroundStyle(.white.opacity(0.95))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .help(event.title)
-                    Text(subtitle)
-                        .font(.system(size: 10))
-                        .foregroundStyle(.white.opacity(0.55))
-                        .lineLimit(1)
-                }
-                Spacer()
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text(timeRange)
-                        .font(.system(size: 10, weight: .medium, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.6))
-            if monitor.todayRemainingCount > 0, Calendar.current.isDate(event.start, inSameDayAs: now) {
-                        Text(l10nMin("calendar_today_remaining", monitor.todayRemainingCount))
-                            .font(.system(size: 9))
+                    if let event {
+                        Text(event.title.isEmpty ? l10n["calendar_untitled"] : event.title)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.95))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .help(event.title)
+                        Text(subtitle(event))
+                            .font(.system(size: 10))
+                            .foregroundStyle(.white.opacity(0.55))
+                            .lineLimit(1)
+                    } else {
+                        Text(l10n["calendar_none_today"])
+                            .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(.white.opacity(0.45))
                     }
                 }
+                Spacer()
+                if let event {
+                    VStack(alignment: .trailing, spacing: 4) {
+                        Text(timeRange(event))
+                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            .foregroundStyle(.white.opacity(0.6))
+                        if monitor.todayRemainingCount > 0,
+                           Calendar.current.isDate(event.start, inSameDayAs: now) {
+                            Text(l10nMin("calendar_today_remaining", monitor.todayRemainingCount))
+                                .font(.system(size: 9))
+                                .foregroundStyle(.white.opacity(0.45))
+                        }
+                    }
+                }
+                // Right block: battery, always present when the card shows.
+                batteryBlock
             }
-            if let fraction = CalendarMonitor.progressFraction(event: event, now: now) {
+            if let event, let fraction = CalendarMonitor.progressFraction(event: event, now: now) {
                 GeometryReader { proxy in
                     ZStack(alignment: .leading) {
                         Capsule().fill(.white.opacity(0.15))
@@ -2545,9 +2510,32 @@ private struct CalendarHeaderCard: View {
         )
     }
 
+    private var batteryBlock: some View {
+        VStack(alignment: .trailing, spacing: 3) {
+            HStack(spacing: 5) {
+                Image(systemName: BatteryMonitor.symbol(level: battery.level, charging: battery.isCharging))
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(batteryColor)
+                Text("\(battery.level)%")
+                    .font(.system(size: 12, weight: .bold, design: .monospaced))
+                    .foregroundStyle(batteryColor)
+            }
+            Text(battery.isCharging
+                 ? l10n["battery_charging"]
+                 : (battery.isPluggedIn ? l10n["battery_full_power"] : l10n["battery_on_battery"]))
+                .font(.system(size: 9))
+                .foregroundStyle(.white.opacity(0.5))
+        }
+    }
+
+    private var batteryColor: Color {
+        Color(nsColor: BatteryMonitor.levelColor(level: battery.level, charging: battery.isCharging))
+    }
+
+    @ViewBuilder
     private var calendarBadge: some View {
         let base = RoundedRectangle(cornerRadius: 8)
-        return ZStack {
+        ZStack {
             base.fill(.white.opacity(0.12))
             VStack(spacing: 0) {
                 // Month header strip + day number, a tiny calendar face.
@@ -2563,15 +2551,11 @@ private struct CalendarHeaderCard: View {
         .frame(width: 44, height: 44)
     }
 
-    private var subtitle: String {
+    private func subtitle(_ event: CalendarMonitor.DisplayEvent) -> String {
         CalendarMonitor.countdownText(event: event, now: now) { l10n[$0] }
     }
 
-    private var timeRange: String {
-        // All-day events (holidays) carry no wall-clock time.
-        if event.isAllDay {
-            return l10n["calendar_all_day"]
-        }
+    private func timeRange(_ event: CalendarMonitor.DisplayEvent) -> String {
         let style = Date.FormatStyle.dateTime.hour(.twoDigits(amPM: .omitted)).minute()
         let calendar = Calendar.current
         // Cross-day events carry their date in the time row.
@@ -2579,7 +2563,11 @@ private struct CalendarHeaderCard: View {
             let day = calendar.isDateInTomorrow(event.start)
                 ? l10n["calendar_day_tomorrow"]
                 : event.start.formatted(.dateTime.month().day())
-            return "\(day) \(event.start.formatted(style)) – \(event.end.formatted(style))"
+            let endPart = event.isAllDay ? "" : " – \(event.end.formatted(style))"
+            return "\(day) \(event.start.formatted(style))\(endPart)"
+        }
+        if event.isAllDay {
+            return l10n["calendar_all_day"]
         }
         return "\(event.start.formatted(style)) – \(event.end.formatted(style))"
     }
@@ -2772,9 +2760,11 @@ private struct PandaQuotaFooterLine: View {
             Image(systemName: "creditcard")
                 .font(.system(size: 9, weight: .semibold))
             Text("Panda")
-                .fontWeight(.semibold)
+                .fontWeight(.bold)
             Text(snapshot.hasPlan ? snapshot.planLabel : "—")
+                .fontWeight(.bold)
             Text("\(snapshot.creditsDisplay(snapshot.usedCredits)) / \(snapshot.isUnlimited ? "不限" : snapshot.creditsDisplay(snapshot.creditLimit))")
+                .fontWeight(.bold)
             ZStack(alignment: .leading) {
                 Capsule().fill(.white.opacity(0.12))
                 Capsule().fill(color)
@@ -2782,6 +2772,7 @@ private struct PandaQuotaFooterLine: View {
             }
             .frame(width: 30, height: 4)
             Text("\(Int(snapshot.usagePercent.rounded()))%")
+                .fontWeight(.bold)
                 .foregroundStyle(color)
             Spacer()
             if !snapshot.windowEndLabel.isEmpty {
@@ -2873,8 +2864,9 @@ private struct PandaUsageFooterLine: View {
             Image(systemName: "gauge.with.needle")
                 .font(.system(size: 9, weight: .semibold))
             Text("Panda")
-                .fontWeight(.semibold)
+                .fontWeight(.bold)
             Text("\(l10n["usage_this_week"]) \(compact(usage.thisWeek))")
+                .fontWeight(.bold)
             Spacer()
             DailyUsageSparkline(buckets: usage.dailyOutputTokens)
         }

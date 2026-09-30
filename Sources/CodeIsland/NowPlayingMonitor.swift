@@ -82,11 +82,9 @@ final class NowPlayingMonitor {
     // MARK: - Activation
 
     private func syncActivation() {
-        npDebug("syncActivation: isEnabled=\(isEnabled) activated=\(activated)")
         if isEnabled, !activated {
             activate()
         } else if !isEnabled, activated {
-            npDebug("syncActivation → deactivate")
             deactivate()
         }
     }
@@ -95,10 +93,8 @@ final class NowPlayingMonitor {
         guard let swiftURL = Self.swiftExecutableURL(),
               let probeURL = Self.probeScriptURL() else {
             npLog.error("activate: swift toolchain or probe script missing, staying dormant")
-            npDebug("activate: missing (swift=\(Self.swiftExecutableURL() != nil) probe=\(Self.probeScriptURL() != nil))")
             return
         }
-        npDebug("activate: launching probe (restartCount=\(restartCount))")
         activated = true
 
         let proc = Process()
@@ -118,7 +114,6 @@ final class NowPlayingMonitor {
             try proc.run()
         } catch {
             npLog.error("probe launch failed: \(error.localizedDescription, privacy: .public)")
-            npDebug("launch failed: \(error.localizedDescription)")
             activated = false
             scheduleRestart()
             return
@@ -134,7 +129,6 @@ final class NowPlayingMonitor {
     }
 
     private func probeDidExit() {
-        npDebug("probeDidExit: process exited, activated=\(activated)")
         process = nil
         stdinHandle = nil
         stdoutBufferReset()
@@ -148,7 +142,6 @@ final class NowPlayingMonitor {
     private func scheduleRestart() {
         guard restartCount < maxRestarts else {
             npLog.error("probe restart limit reached (\(self.restartCount)); now-playing stays off this launch")
-            npDebug("restart limit reached")
             return
         }
         restartCount += 1
@@ -157,7 +150,6 @@ final class NowPlayingMonitor {
         restartTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             guard !Task.isCancelled, self?.activated == true else { return }
-            npDebug("restarting probe (attempt \(self?.restartCount ?? 0))")
             self?.activate()
         }
     }
@@ -347,14 +339,3 @@ final class NowPlayingMonitor {
     }
 }
 
-private func npDebug(_ message: String) {
-    let line = "[\(Date().formatted(date: .omitted, time: .standard))] \(message)\n"
-    let path = "/tmp/codeisland-nowplaying.log"
-    if let handle = FileHandle(forWritingAtPath: path) {
-        defer { try? handle.close() }
-        _ = try? handle.seekToEnd()
-        try? handle.write(contentsOf: Data(line.utf8))
-    } else {
-        try? Data(line.utf8).write(to: URL(fileURLWithPath: path))
-    }
-}

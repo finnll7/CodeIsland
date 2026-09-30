@@ -6,19 +6,6 @@ import os.log
 private let calLog = Logger(subsystem: "com.codeisland", category: "calendar")
 
 
-/// TEMPORARY file-based diagnostics (unified log proved unreliable to query).
-private func calDebug(_ message: String) {
-    let line = "[\(Date().formatted(date: .omitted, time: .standard))] \(message)\n"
-    let path = "/tmp/codeisland-calendar.log"
-    if let handle = FileHandle(forWritingAtPath: path) {
-        defer { try? handle.close() }
-        _ = try? handle.seekToEnd()
-        try? handle.write(contentsOf: Data(line.utf8))
-    } else {
-        try? Data(line.utf8).write(to: URL(fileURLWithPath: path))
-    }
-}
-
 /// Today's calendar events, driven by EventKit. Shows the event currently in
 /// progress (with a progress rail) or the next one today, plus a remaining
 /// count — as a header card under the Now Playing card.
@@ -142,7 +129,6 @@ final class CalendarMonitor {
         guard !requestInFlight else { return }
         requestInFlight = true
         calLog.notice("requesting full access to events")
-        calDebug("requesting full access")
         Task { [weak self] in
             guard let self else { return }
             let granted = (try? await self.store.requestFullAccessToEvents()) ?? false
@@ -150,8 +136,7 @@ final class CalendarMonitor {
                 self.requestInFlight = false
                 self.authorizationStatus = EKEventStore.authorizationStatus(for: .event)
                 calLog.notice("calendar access granted=\(granted)")
-                calDebug("access granted=\(granted) status=\(self.authorizationStatus.rawValue)")
-                if granted, self.activated {
+                        if granted, self.activated {
                     self.startObserving()
                     self.refreshEvents()
                     // EventKit may not have finished loading the store right
@@ -221,10 +206,8 @@ final class CalendarMonitor {
         cachedEvents = store.events(matching: predicate)
             .filter { !$0.isAllDay == false } // keep all; all-day INCLUDED
             .sorted { $0.startDate < $1.startDate }
-        calDebug("refreshEvents: queried \(cachedEvents.count) events, authorized=\(isAuthorized)")
         for e in cachedEvents.prefix(5) {
-            calDebug("  event: title=\((e.title ?? "").debugDescription) allDay=\(e.isAllDay) start=\(e.startDate)")
-        }
+            }
         rederiveDisplay()
     }
 
@@ -244,8 +227,7 @@ final class CalendarMonitor {
             let rawTitle = event.title ?? ""
             // Diagnosis for "card shows no title":节假日订阅日历的事件 title
             // 可能为空或纯空白。
-            calDebug("event: title=\(rawTitle.debugDescription) allDay=\(event.isAllDay) start=\(event.startDate)")
-            return DisplayEvent(
+                return DisplayEvent(
                 title: rawTitle.trimmingCharacters(in: .whitespacesAndNewlines),
                 start: event.startDate,
                 end: event.endDate,
