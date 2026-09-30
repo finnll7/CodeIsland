@@ -2890,7 +2890,9 @@ private struct UsageSparkline: View {
         HStack(alignment: .bottom, spacing: 1.5) {
             ForEach(Array(buckets.enumerated()), id: \.offset) { _, value in
                 RoundedRectangle(cornerRadius: 0.75)
-                    .fill(.white.opacity(value == 0 ? 0.12 : 0.45))
+                    .fill(value == 0
+                          ? AnyShapeStyle(.white.opacity(0.12))
+                          : AnyShapeStyle(Color(red: 0.3, green: 0.85, blue: 0.4)))
                     .frame(width: 2.5, height: max(1.5, CGFloat(value) / CGFloat(peak) * 10))
             }
         }
@@ -2908,7 +2910,9 @@ private struct DailyUsageSparkline: View {
         HStack(alignment: .bottom, spacing: 1.5) {
             ForEach(Array(buckets.enumerated()), id: \.offset) { _, value in
                 RoundedRectangle(cornerRadius: 0.75)
-                    .fill(.white.opacity(value == 0 ? 0.12 : 0.45))
+                    .fill(value == 0
+                          ? AnyShapeStyle(.white.opacity(0.12))
+                          : AnyShapeStyle(Color(red: 0.3, green: 0.85, blue: 0.4)))
                     .frame(width: 2.5, height: max(1.5, CGFloat(value) / CGFloat(peak) * 10))
             }
         }
