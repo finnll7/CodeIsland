@@ -146,15 +146,19 @@ struct NotchPanelView: View {
     @State private var cardSpace = CompletionCardSpace()
 
     private var isActive: Bool { !appState.sessions.isEmpty }
+    /// Idle expansion: hovering the indicator sets surface=.sessionList even
+    /// with no sessions — the bar AND the expanded content must render then,
+    /// or the expansion is invisible.
+    private var showBar: Bool {
+        (isActive || appState.surface.isExpanded)
+            && !(hideWhenNoSession && appState.activeSessionCount == 0)
+    }
     /// First launch / no-session state should still render a visible marker so the app
     /// doesn't disappear completely behind the physical notch.
     private var showIdleIndicator: Bool {
-        !isActive && !hideWhenNoSession
+        !isActive && !hideWhenNoSession && !appState.surface.isExpanded
     }
     /// Whether the bar content should be visible (respects hideWhenNoSession)
-    private var showBar: Bool {
-        isActive && !(hideWhenNoSession && appState.activeSessionCount == 0)
-    }
     private var shouldShowExpanded: Bool {
         showBar && appState.surface.isExpanded
     }
