@@ -2264,9 +2264,6 @@ private struct SessionListView: View {
                     showQuota: showPandaQuota
                 )
             }
-            if appState.weather.isLive, onlySessionId == nil {
-                WeatherFooterLine(monitor: appState.weather)
-            }
         }
     }
 }
