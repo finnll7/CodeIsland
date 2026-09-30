@@ -2337,10 +2337,6 @@ private struct PandaStatsFooterLine: View {
                         Text("\(Int(snapshot.usagePercent.rounded()))%")
                             .fontWeight(.bold)
                             .foregroundStyle(quotaColor)
-                        if !snapshot.windowEndLabel.isEmpty {
-                            Text("↻\(snapshot.windowEndLabel)")
-                                .foregroundStyle(.white.opacity(0.6))
-                        }
                     } else if let error = quota.lastError {
                         Text(error)
                             .foregroundStyle(.white.opacity(0.6))
@@ -2348,7 +2344,14 @@ private struct PandaStatsFooterLine: View {
                     } else if !quota.isConfigured {
                         Text(l10n["panda_quota_need_token"])
                             .foregroundStyle(.white.opacity(0.6))
-                    }
+                }
+                Spacer()
+                // Reset date pinned to the trailing edge (read from the
+                // monitor so the branch-scoped snapshot doesn't shadow it).
+                if let snapshot = quota.snapshot, !snapshot.windowEndLabel.isEmpty {
+                    Text("↻\(snapshot.windowEndLabel)")
+                        .foregroundStyle(.white.opacity(0.6))
+                }
                 }
                 Spacer()
             }
