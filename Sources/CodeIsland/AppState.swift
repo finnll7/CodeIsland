@@ -1310,10 +1310,11 @@ final class AppState {
 
     /// Prewarm at launch so the footer doesn't pop in (and shift panel height)
     /// on the first expansion.
-    func refreshClaudeUsageIfStale() {
+    /// `force` bypasses the 120s staleness check — used on system wake.
+    func refreshClaudeUsageIfStale(force: Bool = false) {
         guard UserDefaults.standard.bool(forKey: SettingsKey.showUsageStats) else { return }
         guard !Self.usageScanInFlight else { return }
-        if let scannedAt = claudeUsage?.scannedAt, Date().timeIntervalSince(scannedAt) < 120 { return }
+        if !force, let scannedAt = claudeUsage?.scannedAt, Date().timeIntervalSince(scannedAt) < 120 { return }
         Self.usageScanInFlight = true
         let cacheCopy = usageFileCache
         Task.detached(priority: .utility) {
