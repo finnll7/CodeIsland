@@ -86,11 +86,13 @@ final class BatteryMonitor {
         }
     }
 
-    /// Level color: white normally, amber ≤20%, red ≤10% (and not charging).
+    /// Level color per user spec: charging=green, >50=white, ≤50=amber,
+    /// ≤20=orange, ≤10=red (non-charging only).
     static func levelColor(level: Int, charging: Bool) -> NSColor {
-        if charging { return .white }
+        if charging { return NSColor(red: 0.3, green: 0.85, blue: 0.4, alpha: 1) }
         if level <= 10 { return NSColor(red: 1.0, green: 0.4, blue: 0.4, alpha: 1) }
-        if level <= 20 { return NSColor(red: 1.0, green: 0.7, blue: 0.28, alpha: 1) }
+        if level <= 20 { return NSColor(red: 1.0, green: 0.55, blue: 0.28, alpha: 1) }
+        if level <= 50 { return NSColor(red: 1.0, green: 0.78, blue: 0.28, alpha: 1) }
         return .white
     }
 }
