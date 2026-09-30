@@ -74,6 +74,10 @@ build_mac() {
     # .app copy here shows up in Spotlight as an "unknown version" duplicate.
     mkdir -p .build
     touch .build/.metadata_never_index
+    # swift test 产物落在 Xcode 布局 .build/out/Products/Release/ 下——同样会被
+    # Spotlight 索引成第二个 CodeIsland。目录级 .metadata_never_index 阻止索引。
+    mkdir -p .build/out/Products/Release
+    touch .build/out/.metadata_never_index .build/out/Products/.metadata_never_index .build/out/Products/Release/.metadata_never_index
 
     swift build -c release --arch arm64
 

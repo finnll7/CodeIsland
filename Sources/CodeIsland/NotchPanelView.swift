@@ -143,7 +143,6 @@ struct NotchPanelView: View {
     @State private var curtainOpacity: Double = 1
     @State private var displayedToolStatus: Bool = SettingsDefaults.showToolStatus
     /// Window and panel heights for the completion card's reply area.
-    @State private var cardSpace = CompletionCardSpace()
 
     private var isActive: Bool { !appState.sessions.isEmpty }
     /// Idle expansion: hovering the indicator sets surface=.sessionList even
@@ -363,7 +362,7 @@ struct NotchPanelView: View {
                     idleExpandTimer?.invalidate()
                 }
             }
-            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { cardSpace.recordPanelHeight($0) }
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { appState.cardSpace.recordPanelHeight($0) }
             .frame(width: panelWidth)
             .clipped()
             .background(
@@ -547,8 +546,8 @@ struct NotchPanelView: View {
         .frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .top)
         // The hosting view fills the panel window, whose height is already
         // clamped to the screen.
-        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { cardSpace.recordWindowHeight($0) }
-        .environment(cardSpace)
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { appState.cardSpace.recordWindowHeight($0) }
+        .environment(appState.cardSpace)
         .animation(NotchAnimation.open, value: appState.surface)
     }
 }

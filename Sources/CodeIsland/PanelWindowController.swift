@@ -237,6 +237,7 @@ class PanelWindowController: NSObject, NSWindowDelegate {
         let screen = chosenScreen()
         let contentView = makeHostingView(for: screen)
         self.hostingView = contentView
+        observeCardSpaceChanges()
 
         let size = panelSize
         let panel = KeyablePanel(
@@ -574,6 +575,38 @@ class PanelWindowController: NSObject, NSWindowDelegate {
 
     private func clampedX(_ desiredX: CGFloat, panelWidth: CGFloat, on screen: NSScreen) -> CGFloat {
         min(max(desiredX, screen.frame.minX), screen.frame.maxX - panelWidth)
+    }
+
+    /// Sizes the panel window to its measured content while the session list
+    /// is open — the ambient header cards (Now Playing / Calendar) plus the
+    /// stats footer must all be visible, which the fixed desiredHeight
+    /// clipped. Top edge stays anchored at the screen top; only the bottom
+    /// moves. The observation re-arms itself (see observeSessionsChanges).
+    private func observeCardSpaceChanges() {
+        withObservationTracking { [weak self] in
+            _ = self?.appState.cardSpace.panelHeight
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                self?.adjustWindowHeightForSessionList()
+                self?.observeCardSpaceChanges()
+            }
+        }
+    }
+
+    private func adjustWindowHeightForSessionList() {
+        guard let panel, panel.isVisible,
+              appState.surface == .sessionList,
+              appState.cardSpace.panelHeight > 0 else { return }
+        let screen = chosenScreen()
+        let targetH = min(
+            max(120, appState.cardSpace.panelHeight + 4),
+            screen.visibleFrame.height
+        )
+        guard abs(panel.frame.height - targetH) > 1 else { return }
+        var frame = panel.frame
+        frame.origin.y = frame.maxY - targetH // keep the top edge anchored
+        frame.size.height = targetH
+        panel.setFrame(frame, display: true)
     }
 
     private func setupHorizontalDragMonitor() {

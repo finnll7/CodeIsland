@@ -357,6 +357,9 @@ final class AppState {
     let battery = BatteryMonitor()
     /// Local weather (Open-Meteo free API + one-time location consent).
     let weather = WeatherMonitor()
+    /// Live geometry of the expanded panel, measured by NotchPanelView and
+    /// consumed by PanelWindowController to size the window to its content.
+    let cardSpace = CompletionCardSpace()
     /// System wake observer: after sleep, timers have fired stale/lost XPC and
     /// every ambient card is stale or empty. Re-force all refresh paths the
     /// moment the machine wakes so the cards recover without waiting for the
