@@ -33,6 +33,11 @@ final class WeatherMonitor: NSObject, CLLocationManagerDelegate {
         super.init()
         locationManager.delegate = self
         locationManager.desiredAccuracy = kCLLocationAccuracyKilometer
+        // Same init-order caveat as the other ambient monitors: registerDefaults
+        // may run after this init, so isEnabled falls back to the built-in
+        // default — and activation must be kicked off here, not by a later
+        // defaults-change notification that may never come.
+        syncActivation()
     }
 
     func syncActivation() {

@@ -3743,6 +3743,15 @@ final class AppState {
         registerWakeRecovery()
         // Restore persisted sessions before process scan (deduped by scan)
         restoreSessions()
+        // Kick off every ambient refresh immediately on launch — otherwise the
+        // usage/quota cards sit empty until the first panel expansion.
+        refreshClaudeUsageIfStale(force: true)
+        refreshPandaUsageIfStale(force: true)
+        externalModel.refreshIfStale(force: true)
+        pandaQuota.fetchNow()
+        claudeQuota.fetchNow()
+        weather.syncActivation()
+        weather.requestLocationAndFetch()
 
         // Initial scan for already-running sessions, respecting per-source toggles.
         requestDiscoveryScan()
