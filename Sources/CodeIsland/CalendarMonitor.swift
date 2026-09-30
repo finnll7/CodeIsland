@@ -40,7 +40,7 @@ final class CalendarMonitor {
         isEnabled && !isAuthorized
     }
 
-    struct DisplayEvent {
+    struct DisplayEvent: Equatable {
         let title: String
         let start: Date
         let end: Date

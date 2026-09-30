@@ -2446,6 +2446,19 @@ private struct ExternalModelFooterLine: View {
 
 // MARK: - Calendar (today's events via EventKit)
 
+/// TEMP diagnostic: file-based, survives unified-log query unreliability.
+private func npCalDebug(_ message: String) {
+    let line = "[\(Date().formatted(date: .omitted, time: .standard))] UI: \(message)\n"
+    let path = "/tmp/codeisland-calendar.log"
+    if let handle = FileHandle(forWritingAtPath: path) {
+        defer { try? handle.close() }
+        _ = try? handle.seekToEnd()
+        try? handle.write(contentsOf: Data(line.utf8))
+    } else {
+        try? Data(line.utf8).write(to: URL(fileURLWithPath: path))
+    }
+}
+
 private struct CalendarHeaderCard: View {
     let monitor: CalendarMonitor
     let event: CalendarMonitor.DisplayEvent?
