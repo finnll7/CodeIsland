@@ -2212,16 +2212,13 @@ private struct SessionListView: View {
                     .padding(.top, 10)
                     .padding(.bottom, 4)
             }
-            // Calendar card right under it — an in-progress or next event.
-            if appState.calendar.needsGrant, onlySessionId == nil {
-                CalendarGrantCard(monitor: appState.calendar)
-                    .padding(.horizontal, 12)
-                    .padding(.top, appState.nowPlaying.isLive ? 4 : 10)
-                    .padding(.bottom, 4)
-            } else if appState.calendar.isLive || appState.battery.isLive, onlySessionId == nil {
-                CalendarHeaderCard(
-                    monitor: appState.calendar,
-                    event: appState.calendar.displayEvent,
+            // Ambient card right under it — calendar (left) / weather (middle) /
+            // battery (right), covering grant, event and no-event states.
+            if appState.calendar.needsGrant || appState.calendar.isLive
+                || appState.weather.isLive || appState.battery.isLive, onlySessionId == nil {
+                AmbientHeaderCard(
+                    calendar: appState.calendar,
+                    weather: appState.weather,
                     battery: appState.battery
                 )
                 .padding(.horizontal, 12)
@@ -2544,53 +2541,69 @@ private func npCalDebug(_ message: String) {
     }
 }
 
-private struct CalendarHeaderCard: View {
-    let monitor: CalendarMonitor
-    let event: CalendarMonitor.DisplayEvent?
+/// One ambient header card: calendar (left) / weather (middle) / battery
+/// (right). Covers all states — events, "no events today", and the explicit
+/// Calendar-access grant button (there is deliberately no automatic request).
+private struct AmbientHeaderCard: View {
+    let calendar: CalendarMonitor
+    let weather: WeatherMonitor
     let battery: BatteryMonitor
     @ObservedObject private var l10n = L10n.shared
     @State private var now = Date()
 
     var body: some View {
         VStack(spacing: 9) {
-            HStack(spacing: 12) {
-                calendarBadge
-                VStack(alignment: .leading, spacing: 3) {
-                    if let event {
-                        Text(event.title.isEmpty ? l10n["calendar_untitled"] : event.title)
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(.white.opacity(0.95))
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                            .help(event.title)
-                        Text(subtitle(event))
-                            .font(.system(size: 10))
-                            .foregroundStyle(.white.opacity(0.55))
-                            .lineLimit(1)
-                    } else {
-                        Text(l10n["calendar_none_today"])
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.45))
-                    }
+            HStack(spacing: 14) {
+                // LEFT — calendar
+                HStack(spacing: 12) {
+                    calendarBadge
+                    calendarText
                 }
                 Spacer()
-                if let event {
-                    VStack(alignment: .trailing, spacing: 4) {
-                        Text(timeRange(event))
-                            .font(.system(size: 10, weight: .medium, design: .monospaced))
-                            .foregroundStyle(.white.opacity(0.6))
-                        if monitor.todayRemainingCount > 0,
-                           Calendar.current.isDate(event.start, inSameDayAs: now) {
-                            Text(l10nMin("calendar_today_remaining", monitor.todayRemainingCount))
-                                .font(.system(size: 9))
-                                .foregroundStyle(.white.opacity(0.45))
+                // MIDDLE — weather
+                if weather.isLive, let temp = weather.temperature {
+                    HStack(spacing: 8) {
+                        Image(systemName: WeatherMonitor.symbol(forCode: weather.weatherCode))
+                            .font(.system(size: 20, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.85))
+                        Text("\(temp)°")
+                            .font(.system(size: 16, weight: .bold, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.95))
+                        VStack(alignment: .leading, spacing: 2) {
+                            if let condition = weather.conditionText {
+                                Text(condition)
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.white.opacity(0.55))
+                            }
+                            if let max = weather.tempMax, let min = weather.tempMin {
+                                Text("↑\(max)° ↓\(min)°")
+                                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                                    .foregroundStyle(.white.opacity(0.45))
+                            }
                         }
                     }
                 }
-                // Right block: battery, always present when the card shows.
+                Spacer()
+                // RIGHT — calendar grant button (only while ungranted)
+                if calendar.needsGrant {
+                    Button {
+                        calendar.requestAccess()
+                    } label: {
+                        Text(l10n["calendar_grant_button"])
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.9))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 7)
+                    }
+                    .buttonStyle(.plain)
+                    .background(Capsule().fill(.white.opacity(0.16)))
+                }
+                // RIGHT — battery
                 batteryBlock
             }
-            if let event, let fraction = CalendarMonitor.progressFraction(event: event, now: now) {
+            // Progress rail while an event is running.
+            if let event = calendar.displayEvent, event.isInProgress,
+               let fraction = CalendarMonitor.progressFraction(event: event, now: now) {
                 GeometryReader { proxy in
                     ZStack(alignment: .leading) {
                         Capsule().fill(.white.opacity(0.15))
@@ -2607,6 +2620,57 @@ private struct CalendarHeaderCard: View {
             RoundedRectangle(cornerRadius: 10)
                 .fill(.white.opacity(0.05))
         )
+    }
+
+    @ViewBuilder
+    private var calendarBadge: some View {
+        let base = RoundedRectangle(cornerRadius: 8)
+        ZStack {
+            base.fill(.white.opacity(0.12))
+            VStack(spacing: 0) {
+                Text(now.formatted(.dateTime.month(.abbreviated)))
+                    .font(.system(size: 8, weight: .bold))
+                    .textCase(.uppercase)
+                    .foregroundStyle(.red.opacity(0.9))
+                Text(now.formatted(.dateTime.day()))
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.9))
+            }
+        }
+        .frame(width: 44, height: 44)
+    }
+
+    /// Left column: grant prompt / event / "no events today".
+    @ViewBuilder
+    private var calendarText: some View {
+        if calendar.needsGrant {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(l10n["calendar_grant_title"])
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.95))
+                Text(l10n["calendar_grant_desc"])
+                    .font(.system(size: 10))
+                    .foregroundStyle(.white.opacity(0.55))
+                    .lineLimit(2)
+            }
+        } else if let event = calendar.displayEvent {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(event.title.isEmpty ? l10n["calendar_untitled"] : event.title)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.95))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .help(event.title)
+                Text(subtitle(event))
+                    .font(.system(size: 10))
+                    .foregroundStyle(.white.opacity(0.55))
+                    .lineLimit(1)
+            }
+        } else {
+            Text(l10n["calendar_none_today"])
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.white.opacity(0.45))
+        }
     }
 
     private var batteryBlock: some View {
@@ -2631,97 +2695,12 @@ private struct CalendarHeaderCard: View {
         Color(nsColor: BatteryMonitor.levelColor(level: battery.level, charging: battery.isCharging))
     }
 
-    @ViewBuilder
-    private var calendarBadge: some View {
-        let base = RoundedRectangle(cornerRadius: 8)
-        ZStack {
-            base.fill(.white.opacity(0.12))
-            VStack(spacing: 0) {
-                // Month header strip + day number, a tiny calendar face.
-                Text(now.formatted(.dateTime.month(.abbreviated)))
-                    .font(.system(size: 8, weight: .bold))
-                    .textCase(.uppercase)
-                    .foregroundStyle(.red.opacity(0.9))
-                Text(now.formatted(.dateTime.day()))
-                    .font(.system(size: 16, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.9))
-            }
-        }
-        .frame(width: 44, height: 44)
-    }
-
     private func subtitle(_ event: CalendarMonitor.DisplayEvent) -> String {
         CalendarMonitor.countdownText(event: event, now: now) { l10n[$0] }
     }
-
-    private func timeRange(_ event: CalendarMonitor.DisplayEvent) -> String {
-        let style = Date.FormatStyle.dateTime.hour(.twoDigits(amPM: .omitted)).minute()
-        let calendar = Calendar.current
-        // Cross-day events carry their date in the time row.
-        if !calendar.isDate(event.start, inSameDayAs: now) {
-            let day = calendar.isDateInTomorrow(event.start)
-                ? l10n["calendar_day_tomorrow"]
-                : event.start.formatted(.dateTime.month().day())
-            let endPart = event.isAllDay ? "" : " – \(event.end.formatted(style))"
-            return "\(day) \(event.start.formatted(style))\(endPart)"
-        }
-        if event.isAllDay {
-            return l10n["calendar_all_day"]
-        }
-        return "\(event.start.formatted(style)) – \(event.end.formatted(style))"
-    }
-
-    private func l10nMin(_ key: String, _ count: Int) -> String {
-        (l10n[key] ?? key).replacingOccurrences(of: "%d", with: "\(count)")
-    }
 }
 
-/// Shown when Calendar access has not been granted (or was denied): the user
-/// opts in explicitly — there is deliberately no automatic permission request
-/// (an ignored dialog + EventKit's own defaults writes caused a request storm).
-private struct CalendarGrantCard: View {
-    let monitor: CalendarMonitor
-    @ObservedObject private var l10n = L10n.shared
 
-    var body: some View {
-        HStack(spacing: 12) {
-            let base = RoundedRectangle(cornerRadius: 8)
-            base.fill(.white.opacity(0.12))
-                .frame(width: 44, height: 44)
-                .overlay {
-                    Image(systemName: "calendar")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.6))
-                }
-            VStack(alignment: .leading, spacing: 3) {
-                Text(l10n["calendar_grant_title"])
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.95))
-                Text(l10n["calendar_grant_desc"])
-                    .font(.system(size: 10))
-                    .foregroundStyle(.white.opacity(0.55))
-                    .lineLimit(2)
-            }
-            Spacer()
-            Button {
-                monitor.requestAccess()
-            } label: {
-                Text(l10n["calendar_grant_button"])
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.9))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 7)
-            }
-            .buttonStyle(.plain)
-            .background(Capsule().fill(Color.white.opacity(0.16)))
-        }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(.white.opacity(0.05))
-        )
-    }
-}
 
 // MARK: - Plan limits (Anthropic subscription windows)
 
