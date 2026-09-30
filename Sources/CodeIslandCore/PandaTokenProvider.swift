@@ -59,17 +59,31 @@ public enum PandaTokenProvider {
     /// db is missing or no record exists for the path.
     public static func readWorkspaceModelId(cwd: String) -> String? {
         guard FileManager.default.fileExists(atPath: stateDBPath) else { return nil }
-        // Percent-encode everything except RFC 3986 unreserved characters —
-        // including "/" (%2F), matching Panda's own key encoding.
-        let unreserved = CharacterSet(charactersIn:
-            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
-        let encoded = cwd.addingPercentEncoding(withAllowedCharacters: unreserved) ?? cwd
+        let encoded = encodeWorkspaceKey(cwd)
         for scope in ["desktop", "projects"] {
             if let value = readStateValue("modelRecent/\(scope)/\(encoded)/remote") {
                 return value
             }
         }
         return nil
+    }
+
+    /// Panda's workspace-key encoding — verified against real state.db keys:
+    /// `encodeURIComponent(cwd)` with every `%2F` rewritten to `-`. So slashes
+    /// become hyphens while non-ASCII (and other reserved) characters stay
+    /// percent-encoded, e.g.
+    /// `/Users/me/中移（成都）/project/App` →
+    /// `-Users-me-%E4%B8%AD%E7%A7%BB%EF%BC%88%E6%88%90%E9%83%BD%EF%BC%89-project-App`.
+    /// NOTE: a plain `addingPercentEncoding` over the whole path yields `%2F`
+    /// separators and therefore never matches — that bug silently disabled
+    /// per-workspace model detection.
+    public static func encodeWorkspaceKey(_ cwd: String) -> String {
+        // encodeURIComponent's unescaped set (RFC 3986 unreserved + JS extras).
+        let allowed = CharacterSet(charactersIn:
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~!*'()")
+        let percentEncoded = cwd.addingPercentEncoding(withAllowedCharacters: allowed) ?? cwd
+        return percentEncoded.replacingOccurrences(of: "%2F", with: "-")
+            .replacingOccurrences(of: "%2f", with: "-")
     }
 
     /// Plaintext value from `state_kv` (e.g. `models.defaultModelId`,
