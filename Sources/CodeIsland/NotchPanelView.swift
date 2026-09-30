@@ -2438,10 +2438,10 @@ private struct ExternalModelFooterLine: View {
             }
             Spacer()
         }
-        .font(.system(size: 10, weight: .medium, design: .monospaced))
-        .foregroundStyle(.white.opacity(0.5))
+        .font(.system(size: 11.5, weight: .medium, design: .monospaced))
+        .foregroundStyle(.white.opacity(0.9))
         .padding(.horizontal, 14)
-        .padding(.vertical, 5)
+        .padding(.vertical, 6)
         .help("\(l10n["external_model_label"]): \(model.name) (\(model.provider))")
     }
 }
@@ -2795,13 +2795,13 @@ private struct PandaQuotaFooterLine: View {
             Spacer()
             if !snapshot.windowEndLabel.isEmpty {
                 Text("↻\(snapshot.windowEndLabel)")
-                    .foregroundStyle(.white.opacity(0.3))
+                    .foregroundStyle(.white.opacity(0.6))
             }
         }
-        .font(.system(size: 10, weight: .medium, design: .monospaced))
-        .foregroundStyle(.white.opacity(0.85))
+        .font(.system(size: 11.5, weight: .medium, design: .monospaced))
+        .foregroundStyle(.white.opacity(0.9))
         .padding(.horizontal, 14)
-        .padding(.vertical, 5)
+        .padding(.vertical, 6)
         .help(detail)
     }
 
@@ -2852,10 +2852,10 @@ private struct UsageFooterLine: View {
             Spacer()
             UsageSparkline(buckets: usage.hourlyOutputTokens)
         }
-        .font(.system(size: 10, weight: .medium, design: .monospaced))
-        .foregroundStyle(.white.opacity(0.85))
+        .font(.system(size: 11.5, weight: .medium, design: .monospaced))
+        .foregroundStyle(.white.opacity(0.9))
         .padding(.horizontal, 14)
-        .padding(.vertical, 5)
+        .padding(.vertical, 6)
         .help(detail)
     }
 
@@ -2888,10 +2888,10 @@ private struct PandaUsageFooterLine: View {
             Spacer()
             DailyUsageSparkline(buckets: usage.dailyOutputTokens)
         }
-        .font(.system(size: 10, weight: .medium, design: .monospaced))
-        .foregroundStyle(.white.opacity(0.85))
+        .font(.system(size: 11.5, weight: .medium, design: .monospaced))
+        .foregroundStyle(.white.opacity(0.9))
         .padding(.horizontal, 14)
-        .padding(.vertical, 5)
+        .padding(.vertical, 6)
         .help(detail)
     }
 
