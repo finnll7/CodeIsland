@@ -2267,6 +2267,9 @@ private struct SessionListView: View {
                     PandaQuotaMessage(text: l10n["panda_quota_need_token"])
                 }
             }
+            if appState.battery.isLive, onlySessionId == nil {
+                BatteryFooterLine(monitor: appState.battery)
+            }
         }
     }
 }
@@ -2434,6 +2437,39 @@ private struct ExternalModelFooterLine: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 5)
         .help("\(l10n["external_model_label"]): \(model.name) (\(model.provider))")
+    }
+}
+
+// MARK: - Battery (IOKit.ps power source)
+
+private struct BatteryFooterLine: View {
+    let monitor: BatteryMonitor
+    @ObservedObject private var l10n = L10n.shared
+
+    private var levelColor: Color {
+        Color(nsColor: BatteryMonitor.levelColor(level: monitor.level, charging: monitor.isCharging))
+    }
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: BatteryMonitor.symbol(level: monitor.level, charging: monitor.isCharging))
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(levelColor)
+            Text("\(monitor.level)%")
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .foregroundStyle(levelColor)
+            Text("·")
+                .foregroundStyle(.white.opacity(0.3))
+            Text(monitor.isCharging
+                 ? l10n["battery_charging"]
+                 : (monitor.isPluggedIn ? l10n["battery_full_power"] : l10n["battery_on_battery"]))
+                .foregroundStyle(.white.opacity(0.85))
+            Spacer()
+        }
+        .font(.system(size: 10, weight: .medium, design: .monospaced))
+        .padding(.horizontal, 14)
+        .padding(.vertical, 5)
+        .help(l10n["battery_help"])
     }
 }
 
@@ -2754,7 +2790,7 @@ private struct PandaQuotaFooterLine: View {
             }
         }
         .font(.system(size: 10, weight: .medium, design: .monospaced))
-        .foregroundStyle(.white.opacity(0.45))
+        .foregroundStyle(.white.opacity(0.85))
         .padding(.horizontal, 14)
         .padding(.vertical, 5)
         .help(detail)
@@ -2808,7 +2844,7 @@ private struct UsageFooterLine: View {
             UsageSparkline(buckets: usage.hourlyOutputTokens)
         }
         .font(.system(size: 10, weight: .medium, design: .monospaced))
-        .foregroundStyle(.white.opacity(0.45))
+        .foregroundStyle(.white.opacity(0.85))
         .padding(.horizontal, 14)
         .padding(.vertical, 5)
         .help(detail)
@@ -2843,7 +2879,7 @@ private struct PandaUsageFooterLine: View {
             DailyUsageSparkline(buckets: usage.dailyOutputTokens)
         }
         .font(.system(size: 10, weight: .medium, design: .monospaced))
-        .foregroundStyle(.white.opacity(0.45))
+        .foregroundStyle(.white.opacity(0.85))
         .padding(.horizontal, 14)
         .padding(.vertical, 5)
         .help(detail)

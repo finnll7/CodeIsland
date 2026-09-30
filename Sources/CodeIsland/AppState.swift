@@ -353,6 +353,8 @@ final class AppState {
     /// Panda's selected model — when an external ("custom") model is active,
     /// its provider balance replaces the Panda plan card.
     let externalModel = ExternalModelMonitor()
+    /// Battery level / power source (IOKit.ps) — footer line; hidden on desktops.
+    let battery = BatteryMonitor()
     /// System wake observer: after sleep, timers have fired stale/lost XPC and
     /// every ambient card is stale or empty. Re-force all refresh paths the
     /// moment the machine wakes so the cards recover without waiting for the

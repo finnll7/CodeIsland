@@ -101,6 +101,9 @@ enum SettingsKey {
     // Calendar header card (today's events via EventKit)
     static let showCalendar = "showCalendar"
 
+    // Battery footer line (IOKit power source; hidden on desktops)
+    static let showBattery = "showBattery"
+
     // Completion notification: "expand" | "glance" | "off". Successor of the
     // boolean autoExpandOnCompletion — see AppState.completionStyle migration.
     static let completionNotificationStyle = "completionNotificationStyle"
@@ -230,6 +233,7 @@ struct SettingsDefaults {
     static let showPandaQuota = false
     static let showNowPlaying = true
     static let showCalendar = true
+    static let showBattery = true
 
     static let rotationInterval = 5
 
@@ -336,6 +340,7 @@ class SettingsManager {
             SettingsKey.showPandaQuota: SettingsDefaults.showPandaQuota,
             SettingsKey.showNowPlaying: SettingsDefaults.showNowPlaying,
             SettingsKey.showCalendar: SettingsDefaults.showCalendar,
+            SettingsKey.showBattery: SettingsDefaults.showBattery,
             SettingsKey.rotationInterval: SettingsDefaults.rotationInterval,
             SettingsKey.maxToolHistory: SettingsDefaults.maxToolHistory,
             SettingsKey.showTaskProgress: SettingsDefaults.showTaskProgress,
