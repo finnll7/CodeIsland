@@ -402,6 +402,7 @@ struct NotchPanelView: View {
                 // the animated width change crosses the mouse position (#52).
                 if showIdleIndicator {
                     if hovering {
+                        npCalDebug("idle hover ENTER — scheduling expansion")
                         hoverTimer?.invalidate()
                         hoverTimer = nil
                         withAnimation(NotchAnimation.micro) { idleHovered = true }

@@ -204,10 +204,7 @@ final class CalendarMonitor {
         let windowEnd = now.addingTimeInterval(7 * 24 * 3600)
         let predicate = store.predicateForEvents(withStart: windowStart, end: windowEnd, calendars: nil)
         cachedEvents = store.events(matching: predicate)
-            .filter { !$0.isAllDay == false } // keep all; all-day INCLUDED
             .sorted { $0.startDate < $1.startDate }
-        for e in cachedEvents.prefix(5) {
-            }
         rederiveDisplay()
     }
 
@@ -221,14 +218,11 @@ final class CalendarMonitor {
         // 00:00 start; its endDate is the next midnight, so endDate > now
         // keeps it in `upcoming` naturally.
         let upcoming = cachedEvents.filter { $0.endDate > now }
-        todayRemainingCount = upcoming.filter { calendar.isDate($0.startDate, inSameDayAs: now) }.count
+        let remainingToday = upcoming.filter { calendar.isDate($0.startDate, inSameDayAs: now) }.count
 
         func display(_ event: EKEvent, inProgress: Bool) -> DisplayEvent {
-            let rawTitle = event.title ?? ""
-            // Diagnosis for "card shows no title":节假日订阅日历的事件 title
-            // 可能为空或纯空白。
-                return DisplayEvent(
-                title: rawTitle.trimmingCharacters(in: .whitespacesAndNewlines),
+            DisplayEvent(
+                title: (event.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
                 start: event.startDate,
                 end: event.endDate,
                 isInProgress: inProgress,
@@ -236,19 +230,26 @@ final class CalendarMonitor {
             )
         }
 
+        let newDisplay: DisplayEvent?
         if let running = upcoming.first(where: { $0.startDate <= now }) {
-            displayEvent = display(running, inProgress: true)
+            newDisplay = display(running, inProgress: true)
         } else if let next = upcoming.first {
             // The nearest FUTURE event on any day — today's leftovers first,
             // otherwise tomorrow / later this week (holidays included).
-            displayEvent = display(next, inProgress: false)
+            newDisplay = display(next, inProgress: false)
         } else if let lastEnded = cachedEvents.last {
             // Nothing ahead at all — show the most recently ended event
             // instead of hiding the card entirely.
-            displayEvent = display(lastEnded, inProgress: false)
+            newDisplay = display(lastEnded, inProgress: false)
         } else {
-            displayEvent = nil
+            newDisplay = nil
         }
+
+        // @Observable fires on every write; 30s no-op writes (identical
+        // values) would re-render the whole panel and can disturb hover
+        // tracking — assign on actual change only.
+        if displayEvent != newDisplay { displayEvent = newDisplay }
+        if todayRemainingCount != remainingToday { todayRemainingCount = remainingToday }
     }
 }
 
