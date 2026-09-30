@@ -379,7 +379,7 @@ final class AppState {
         refreshClaudeUsageIfStale(force: true)
         refreshPandaUsageIfStale(force: true)
         calendar.refreshEvents()
-        externalModel.refresh(force: true)
+        externalModel.refreshIfStale(force: true)
         pandaQuota.fetchNow()
         claudeQuota.fetchNow()
     }
