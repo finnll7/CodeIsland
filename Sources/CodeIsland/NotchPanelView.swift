@@ -2287,67 +2287,71 @@ private struct PandaStatsFooterLine: View {
     }
 
     var body: some View {
-        HStack(spacing: 8) {
-            // Left: weekly token usage.
+        // Two rows: 12.5px makes a single left/right line overflow — stacked
+        // rows keep every figure legible.
+        VStack(spacing: 4) {
+            // Row 1 — weekly token usage.
             if showUsage, let usage, !usage.thisWeek.isEmpty {
-                Image(systemName: "gauge.with.needle")
-                    .font(.system(size: 10, weight: .semibold))
-                Text("Panda")
-                    .fontWeight(.bold)
-                Text(l10n["usage_this_week"])
-                Text(compact(usage.thisWeek))
-                    .fontWeight(.bold)
-            }
-            if showUsage, quotaVisible {
-                Text("·")
-                    .foregroundStyle(.white.opacity(0.3))
-            }
-            // Right: plan balance, or the external model's balance.
-            if let external {
-                Image(systemName: "cpu")
-                    .font(.system(size: 10, weight: .semibold))
-                Text(external.name)
-                    .fontWeight(.bold)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                if let balance = external.balanceText {
-                    Text("\(l10n["external_balance"]) \(balance)")
-                        .fontWeight(.bold)
-                } else {
-                    Text(l10n["external_no_balance"])
-                        .foregroundStyle(.white.opacity(0.5))
-                }
-            } else if showQuota {
-                if let snapshot = quota.snapshot {
-                    Image(systemName: "creditcard")
+                HStack(spacing: 5) {
+                    Image(systemName: "gauge.with.needle")
                         .font(.system(size: 10, weight: .semibold))
-                    Text(snapshot.hasPlan ? snapshot.planLabel : "—")
+                    Text("Panda")
                         .fontWeight(.bold)
-                    Text("\(snapshot.creditsDisplay(snapshot.usedCredits)) / \(snapshot.isUnlimited ? "不限" : snapshot.creditsDisplay(snapshot.creditLimit))")
+                    Text(l10n["usage_this_week"])
+                    Text(compact(usage.thisWeek))
                         .fontWeight(.bold)
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(.white.opacity(0.15))
-                        Capsule().fill(quotaColor)
-                            .frame(width: 30 * min(snapshot.usagePercent / 100, 1))
+                    Spacer()
+                    DailyUsageSparkline(buckets: usage.dailyOutputTokens)
+                }
+            }
+            // Row 2 — plan balance, or the external model's balance.
+            HStack(spacing: 6) {
+                if let external {
+                    Image(systemName: "cpu")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text(external.name)
+                        .fontWeight(.bold)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    if let balance = external.balanceText {
+                        Text("\(l10n["external_balance"]) \(balance)")
+                            .fontWeight(.bold)
+                    } else {
+                        Text(l10n["external_no_balance"])
+                            .foregroundStyle(.white.opacity(0.5))
                     }
-                    .frame(width: 30, height: 4)
-                    Text("\(Int(snapshot.usagePercent.rounded()))%")
-                        .fontWeight(.bold)
-                        .foregroundStyle(quotaColor)
-                    if !snapshot.windowEndLabel.isEmpty {
-                        Text("↻\(snapshot.windowEndLabel)")
+                } else if showQuota {
+                    if let snapshot = quota.snapshot {
+                        Image(systemName: "creditcard")
+                            .font(.system(size: 10, weight: .semibold))
+                        Text(snapshot.hasPlan ? snapshot.planLabel : "—")
+                            .fontWeight(.bold)
+                        Text("\(snapshot.creditsDisplay(snapshot.usedCredits)) / \(snapshot.isUnlimited ? "不限" : snapshot.creditsDisplay(snapshot.creditLimit))")
+                            .fontWeight(.bold)
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(.white.opacity(0.15))
+                            Capsule().fill(quotaColor)
+                                .frame(width: 30 * min(snapshot.usagePercent / 100, 1))
+                        }
+                        .frame(width: 30, height: 4)
+                        Text("\(Int(snapshot.usagePercent.rounded()))%")
+                            .fontWeight(.bold)
+                            .foregroundStyle(quotaColor)
+                        if !snapshot.windowEndLabel.isEmpty {
+                            Text("↻\(snapshot.windowEndLabel)")
+                                .foregroundStyle(.white.opacity(0.6))
+                        }
+                    } else if let error = quota.lastError {
+                        Text(error)
+                            .foregroundStyle(.white.opacity(0.6))
+                            .lineLimit(1)
+                    } else if !quota.isConfigured {
+                        Text(l10n["panda_quota_need_token"])
                             .foregroundStyle(.white.opacity(0.6))
                     }
-                } else if let error = quota.lastError {
-                    Text(error)
-                        .foregroundStyle(.white.opacity(0.6))
-                        .lineLimit(1)
-                } else if !quota.isConfigured {
-                    Text(l10n["panda_quota_need_token"])
-                        .foregroundStyle(.white.opacity(0.6))
                 }
+                Spacer()
             }
-            Spacer()
         }
         .font(.system(size: 12.5, weight: .medium, design: .monospaced))
         .foregroundStyle(.white.opacity(0.9))
