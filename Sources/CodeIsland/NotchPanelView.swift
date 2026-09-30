@@ -2330,16 +2330,17 @@ private struct PandaStatsFooterLine: View {
                             .fontWeight(.bold)
                         ZStack(alignment: .leading) {
                             Capsule().fill(.white.opacity(0.18))
-                            // Green→amber→orange→red ramp: the fill's leading
-                            // edge lands on the color matching the usage tier.
+                            // Green→orange→red ramp per user spec: green at
+                            // low usage, orange as the warning midpoint, red
+                            // as usage approaches the limit. The fill's
+                            // leading edge lands on the tier color.
                             GeometryReader { geo in
                                 Capsule()
                                     .fill(LinearGradient(
                                         stops: [
                                             .init(color: Color(red: 0.3, green: 0.85, blue: 0.4), location: 0),
-                                            .init(color: Color(red: 1.0, green: 0.85, blue: 0.3), location: 0.45),
-                                            .init(color: Color(red: 1.0, green: 0.55, blue: 0.28), location: 0.72),
-                                            .init(color: Color(red: 1.0, green: 0.4, blue: 0.4), location: 0.92),
+                                            .init(color: Color(red: 1.0, green: 0.65, blue: 0.25), location: 0.5),
+                                            .init(color: Color(red: 1.0, green: 0.4, blue: 0.4), location: 1.0),
                                         ],
                                         startPoint: .leading, endPoint: .trailing
                                     ))
