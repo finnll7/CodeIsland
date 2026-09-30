@@ -194,7 +194,11 @@ struct NotchPanelView: View {
     /// Total panel width — adapts based on state and screen geometry
     private var panelWidth: CGFloat {
         let nw = effectiveNotchW
-        let maxWidth = min(620, screenWidth - 40)
+        // Content-layer guard (mirrors PanelWindowController.panelSize): during
+        // wake/display-reconfigure the screen width passed in here can be a
+        // degenerate frame — without the clamp every branch below collapses to
+        // a sliver (all HStacks wrap one character per line).
+        let maxWidth = max(min(620, screenWidth - 40), 580)
         if showIdleIndicator { return idleHovered ? nw + compactWingWidth * 2 + 80 : nw + compactWingWidth * 2 }
         if !isActive { return hasNotch ? nw - 20 : nw }
         if shouldShowExpanded { return min(max(nw + 200, 580), maxWidth) }

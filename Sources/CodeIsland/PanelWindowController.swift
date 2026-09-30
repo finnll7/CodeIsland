@@ -389,7 +389,9 @@ class PanelWindowController: NSObject, NSWindowDelegate {
             hasNotch: hasNotch,
             notchHeight: notchHeight,
             notchW: notchW,
-            screenWidth: screen.frame.width
+            // Same wake guard as panelSize: never freeze a degenerate screen
+            // width into the SwiftUI content.
+            screenWidth: max(screen.frame.width, 800)
         )
         let contentView = NotchHostingView(rootView: rootView)
         contentView.sizingOptions = []
