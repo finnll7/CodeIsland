@@ -124,6 +124,8 @@ final class PandaQuotaMonitor {
         case .success(let snap):
             snapshot = snap
             lastError = nil
+            // Tiered balance alerts (≤40/20/10% remaining, one shot per tier).
+            QuotaAlertNotifier.check(snapshot: snap)
         case .failure(let error):
             lastError = error.localizedDescription
         }

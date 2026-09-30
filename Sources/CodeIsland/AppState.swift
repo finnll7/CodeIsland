@@ -391,6 +391,8 @@ final class AppState {
         claudeQuota.fetchNow()
         weather.syncActivation()
         weather.requestLocationAndFetch()
+        // One-time local-notification consent (idempotent).
+        QuotaAlertNotifier.requestAuthorization()
     }
     /// Process-wide, not per-instance: the scan reads one shared history
     /// (`~/.claude`), so two concurrent runs are always duplicate work. Production
@@ -3755,6 +3757,8 @@ final class AppState {
         claudeQuota.fetchNow()
         weather.syncActivation()
         weather.requestLocationAndFetch()
+        // One-time local-notification consent (idempotent).
+        QuotaAlertNotifier.requestAuthorization()
 
         // Initial scan for already-running sessions, respecting per-source toggles.
         requestDiscoveryScan()
