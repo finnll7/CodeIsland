@@ -292,7 +292,7 @@ final class AppState {
                 refreshPandaUsageIfStale()
                 claudeQuota.noteExpanded()
                 pandaQuota.noteExpanded()
-                externalModel.refreshIfStale()
+                externalModel.refreshIfStale(force: true, activeCWD: activeSessionCWD())
             } else {
                 claudeQuota.noteCollapsed()
                 pandaQuota.noteCollapsed()
@@ -367,6 +367,17 @@ final class AppState {
     @ObservationIgnored
     private var wakeObservers: [NSObjectProtocol] = []
 
+    /// The cwd whose workspace model record drives the external-model card.
+    func activeSessionCWD() -> String? {
+        if let sid = rotatingSessionId ?? activeSessionId, let session = sessions[sid] {
+            return session.cwd
+        }
+        for sid in sessions.keys.sorted(by: { sessions[$0]?.lastActivity ?? .distantPast > sessions[$1]?.lastActivity ?? .distantPast }) {
+            if let cwd = sessions[sid]?.cwd, !cwd.isEmpty { return cwd }
+        }
+        return nil
+    }
+
     private func registerWakeRecovery() {
         let ws = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification] {
@@ -386,7 +397,7 @@ final class AppState {
         refreshClaudeUsageIfStale(force: true)
         refreshPandaUsageIfStale(force: true)
         calendar.refreshEvents()
-        externalModel.refreshIfStale(force: true)
+        externalModel.refreshIfStale(force: true, activeCWD: activeSessionCWD())
         pandaQuota.fetchNow()
         claudeQuota.fetchNow()
         weather.syncActivation()
@@ -1802,7 +1813,10 @@ final class AppState {
         if normalizedEventName == "Stop" {
             refreshPandaUsageIfStale(force: true)
             pandaQuota.noteStop()
-            externalModel.refreshIfStale()
+            externalModel.refreshIfStale(activeCWD: activeSessionCWD())
+        }
+        if normalizedEventName == "UserPromptSubmit" || normalizedEventName == "PreToolUse" {
+            externalModel.refreshIfStale(activeCWD: activeSessionCWD())
         }
 
         // Backfill model after metadata extraction. Hooks are inconsistent across providers,
@@ -3752,7 +3766,7 @@ final class AppState {
         // usage/quota cards sit empty until the first panel expansion.
         refreshClaudeUsageIfStale(force: true)
         refreshPandaUsageIfStale(force: true)
-        externalModel.refreshIfStale(force: true)
+        externalModel.refreshIfStale(force: true, activeCWD: activeSessionCWD())
         pandaQuota.fetchNow()
         claudeQuota.fetchNow()
         weather.syncActivation()

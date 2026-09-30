@@ -52,6 +52,26 @@ public enum PandaTokenProvider {
         return try decrypt(encryptedValue: encrypted, keyringPassword: password)
     }
 
+    /// The model a Panda session in `cwd` last used. Panda stores per-workspace
+    /// model history at `modelRecent/desktop|projects/<percent-encoded-cwd>/remote`
+    /// (a JSON array ordered newest-first; `modelId` is `custom:<uuid>` for
+    /// external models). Blocking I/O — call off the main actor. Nil when the
+    /// db is missing or no record exists for the path.
+    public static func readWorkspaceModelId(cwd: String) -> String? {
+        guard FileManager.default.fileExists(atPath: stateDBPath) else { return nil }
+        // Percent-encode everything except RFC 3986 unreserved characters —
+        // including "/" (%2F), matching Panda's own key encoding.
+        let unreserved = CharacterSet(charactersIn:
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
+        let encoded = cwd.addingPercentEncoding(withAllowedCharacters: unreserved) ?? cwd
+        for scope in ["desktop", "projects"] {
+            if let value = readStateValue("modelRecent/\(scope)/\(encoded)/remote") {
+                return value
+            }
+        }
+        return nil
+    }
+
     /// Plaintext value from `state_kv` (e.g. `models.defaultModelId`,
     /// `models.custom.v1`). Blocking I/O — call off the main actor. Nil when
     /// the db is missing or the key is absent.

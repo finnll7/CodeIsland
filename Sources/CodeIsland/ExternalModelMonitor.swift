@@ -33,12 +33,16 @@ final class ExternalModelMonitor {
     var isLive: Bool { externalModel != nil }
 
     private var lastRefreshAt = Date.distantPast
+    private var lastActiveCWD: String?
     private var refreshTask: Task<Void, Never>?
 
-    /// Same cadence as the quota cards: panel expansion / Stop events.
-    /// `force` bypasses the 120s throttle (used on system wake).
-    func refreshIfStale(force: Bool = false) {
-        if !force, Date().timeIntervalSince(lastRefreshAt) < 120 { return }
+    /// Faster cadence than the quota cards: a model switch must show up
+    /// within seconds of the next event, and panel expansion always forces
+    /// one (the user looking is the trigger). `activeCWD` = the session the
+    /// user would look at — its workspace model record wins.
+    func refreshIfStale(force: Bool = false, activeCWD: String? = nil) {
+        if let activeCWD { lastActiveCWD = activeCWD }
+        if !force, Date().timeIntervalSince(lastRefreshAt) < 15 { return }
         refresh()
     }
 
@@ -46,7 +50,11 @@ final class ExternalModelMonitor {
         guard refreshTask == nil else { return }
         lastRefreshAt = Date()
         refreshTask = Task { [weak self] in
-            let status = await Self.computeStatus()
+            // The active session's workspace decides which model record wins —
+            // Panda keeps per-workspace model history, so switching models in
+            // one task doesn't touch the global default.
+            let cwd = await MainActor.run { self?.lastActiveCWD }
+            let status = await Self.computeStatus(activeCWD: cwd)
             await MainActor.run {
                 self?.externalModel = status
                 self?.refreshTask = nil
@@ -57,12 +65,16 @@ final class ExternalModelMonitor {
 
 extension ExternalModelMonitor {
     /// Blocking I/O + keychain — runs off the main actor.
-    nonisolated static func computeStatus() async -> ExternalModel? {
-        guard let defaultModelID = PandaTokenProvider.readStateValue("models.defaultModelId"),
-              defaultModelID.hasPrefix("custom:") else {
-            return nil
-        }
-        let modelID = String(defaultModelID.dropFirst("custom:".count))
+    ///
+    /// Model resolution order:
+    ///   1. the active session's workspace record (`modelRecent/...`) — what
+    ///      the user picked for THIS task, even before any request runs;
+    ///   2. the global default (`models.defaultModelId`) as fallback.
+    /// Non-`custom:` ids (built-in gateway models) yield nil — the Panda plan
+    /// card stays up for those.
+    nonisolated static func computeStatus(activeCWD: String?) async -> ExternalModel? {
+        let modelID = Self.currentCustomModelID(activeCWD: activeCWD)
+        guard let modelID else { return nil }
         guard let customJSON = PandaTokenProvider.readStateValue("models.custom.v1"),
               let data = customJSON.data(using: .utf8),
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -84,6 +96,38 @@ extension ExternalModelMonitor {
             balanceText = balance
         }
         return ExternalModel(modelID: modelID, name: name, provider: provider, balanceText: balanceText)
+    }
+
+    /// Pure resolution: workspace record first, global default second. Returns
+    /// the bare custom-model uuid (without the `custom:` prefix) or nil.
+    nonisolated static func currentCustomModelID(activeCWD: String?) -> String? {
+        // 1) Workspace-scoped: the model last picked for this task.
+        if let cwd = activeCWD, !cwd.isEmpty,
+           let recordJSON = PandaTokenProvider.readWorkspaceModelId(cwd: cwd),
+           let latest = Self.latestModelID(fromRecordJSON: recordJSON) {
+            if latest.hasPrefix("custom:") {
+                return String(latest.dropFirst("custom:".count))
+            }
+            return nil // built-in model selected for this workspace
+        }
+        // 2) Global default fallback (no active session / no record).
+        guard let defaultModelID = PandaTokenProvider.readStateValue("models.defaultModelId"),
+              defaultModelID.hasPrefix("custom:") else {
+            return nil
+        }
+        return String(defaultModelID.dropFirst("custom:".count))
+    }
+
+    /// Newest `modelId` from a modelRecent JSON array (ordered newest-first;
+    /// belt-and-braces: falls back to max(usedAt) when [0] isn't the newest).
+    nonisolated static func latestModelID(fromRecordJSON json: String) -> String? {
+        guard let data = json.data(using: .utf8),
+              let entries = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+              !entries.isEmpty else {
+            return nil
+        }
+        let newest = entries.max { ($0["usedAt"] as? Double ?? 0) < ($1["usedAt"] as? Double ?? 0) }
+        return (newest?["modelId"] as? String) ?? (entries.first?["modelId"] as? String)
     }
 
     /// DeepSeek's official balance endpoint: total balance in the account
