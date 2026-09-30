@@ -36,8 +36,9 @@ final class ExternalModelMonitor {
     private var refreshTask: Task<Void, Never>?
 
     /// Same cadence as the quota cards: panel expansion / Stop events.
-    func refreshIfStale() {
-        guard Date().timeIntervalSince(lastRefreshAt) >= 120 else { return }
+    /// `force` bypasses the 120s throttle (used on system wake).
+    func refreshIfStale(force: Bool = false) {
+        if !force, Date().timeIntervalSince(lastRefreshAt) < 120 { return }
         refresh()
     }
 

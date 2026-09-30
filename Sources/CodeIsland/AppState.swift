@@ -353,6 +353,36 @@ final class AppState {
     /// Panda's selected model — when an external ("custom") model is active,
     /// its provider balance replaces the Panda plan card.
     let externalModel = ExternalModelMonitor()
+    /// System wake observer: after sleep, timers have fired stale/lost XPC and
+    /// every ambient card is stale or empty. Re-force all refresh paths the
+    /// moment the machine wakes so the cards recover without waiting for the
+    /// next Panda task. (Same pattern ClaudeQuotaMonitor already uses.)
+    @ObservationIgnored
+    private var wakeObservers: [NSObjectProtocol] = []
+
+    private func registerWakeRecovery() {
+        let ws = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification] {
+            wakeObservers.append(ws.addObserver(
+                forName: name, object: nil, queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in self?.recoverAfterWake() }
+            })
+        }
+    }
+
+    /// Force-refresh every ambient card after wake. Network may not be up yet
+    /// — fetches that fail set lastError (cards keep their last snapshot) and
+    /// the next expansion/Stop retries them.
+    private func recoverAfterWake() {
+        log.notice("system wake — refreshing ambient cards")
+        refreshClaudeUsageIfStale(force: true)
+        refreshPandaUsageIfStale(force: true)
+        calendar.refreshEvents()
+        externalModel.refresh(force: true)
+        pandaQuota.fetchNow()
+        claudeQuota.fetchNow()
+    }
     /// Process-wide, not per-instance: the scan reads one shared history
     /// (`~/.claude`), so two concurrent runs are always duplicate work. Production
     /// has a single AppState and never noticed, but anything constructing several —
@@ -3703,6 +3733,7 @@ final class AppState {
 
     func startSessionDiscovery() {
         startCleanupTimer()
+        registerWakeRecovery()
         // Restore persisted sessions before process scan (deduped by scan)
         restoreSessions()
 
