@@ -1273,6 +1273,7 @@ private struct AppearancePage: View {
     @AppStorage(SettingsKey.showNowPlaying) private var showNowPlaying = SettingsDefaults.showNowPlaying
     @AppStorage(SettingsKey.showCalendar) private var showCalendar = SettingsDefaults.showCalendar
     @AppStorage(SettingsKey.showBattery) private var showBattery = SettingsDefaults.showBattery
+    @AppStorage(SettingsKey.showWeather) private var showWeather = SettingsDefaults.showWeather
     @AppStorage(SettingsKey.pandaGatewayToken) private var pandaGatewayToken = ""
     @AppStorage(SettingsKey.collapsedWidthScale) private var collapsedWidthScale = SettingsDefaults.collapsedWidthScale
     @AppStorage(SettingsKey.notchHeightMode) private var notchHeightModeRaw = SettingsDefaults.notchHeightMode
@@ -1468,6 +1469,12 @@ private struct AppearancePage: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Toggle(l10n["show_battery"], isOn: $showBattery)
                     Text(l10n["show_battery_desc"])
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Toggle(l10n["show_weather"], isOn: $showWeather)
+                    Text(l10n["show_weather_desc"])
                         .font(.system(size: 11))
                         .foregroundStyle(.tertiary)
                 }

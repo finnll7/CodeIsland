@@ -2250,32 +2250,125 @@ private struct SessionListView: View {
                !(usage.last5h.isEmpty && usage.today.isEmpty) {
                 UsageFooterLine(usage: usage)
             }
-            if showPandaUsage, onlySessionId == nil, let usage = appState.pandaUsage,
-               !usage.thisWeek.isEmpty {
-                PandaUsageFooterLine(usage: usage)
+            // Panda stats — one line, split left/right: weekly usage on the
+            // left, plan balance (or the external model's balance when a
+            // "custom" model is selected in Panda) on the right.
+            let pandaStatsVisible = (showPandaUsage && appState.pandaUsage != nil
+                && !(appState.pandaUsage?.thisWeek.isEmpty ?? true))
+                || (showPandaQuota && (appState.pandaQuota.snapshot != nil
+                    || appState.pandaQuota.lastError != nil
+                    || !appState.pandaQuota.isConfigured))
+                || appState.externalModel.isLive
+            if pandaStatsVisible, onlySessionId == nil {
+                PandaStatsFooterLine(
+                    usage: appState.pandaUsage,
+                    quota: appState.pandaQuota,
+                    external: appState.externalModel.externalModel,
+                    showUsage: showPandaUsage,
+                    showQuota: showPandaQuota
+                )
             }
-            if showClaudeQuota, onlySessionId == nil {
-                if let snapshot = appState.claudeQuota.snapshot {
-                    QuotaFooterLine(snapshot: snapshot, error: appState.claudeQuota.lastError)
-                } else if let error = appState.claudeQuota.lastError {
-                    QuotaFooterMessage(error: error)
-                }
-            }
-            // An external ("custom") model selected in Panda replaces the
-            // Panda plan card with that provider's balance (where available).
-            if appState.externalModel.isLive, onlySessionId == nil,
-               let external = appState.externalModel.externalModel {
-                ExternalModelFooterLine(model: external)
-            } else if showPandaQuota, onlySessionId == nil {
-                if let snapshot = appState.pandaQuota.snapshot {
-                    PandaQuotaFooterLine(snapshot: snapshot)
-                } else if let error = appState.pandaQuota.lastError {
-                    PandaQuotaMessage(text: error)
-                } else if !appState.pandaQuota.isConfigured {
-                    PandaQuotaMessage(text: l10n["panda_quota_need_token"])
-                }
+            if appState.weather.isLive, onlySessionId == nil {
+                WeatherFooterLine(monitor: appState.weather)
             }
         }
+    }
+}
+
+// MARK: - Panda stats (usage left / plan-or-external balance right)
+
+private struct PandaStatsFooterLine: View {
+    let usage: PandaUsageScanner.Snapshot?
+    let quota: PandaQuotaMonitor
+    let external: ExternalModelMonitor.ExternalModel?
+    let showUsage: Bool
+    let showQuota: Bool
+    @ObservedObject private var l10n = L10n.shared
+
+    private var quotaColor: Color {
+        switch quota.snapshot?.level {
+        case .warning: return QuotaStyle.warning
+        case .critical: return QuotaStyle.critical
+        default: return QuotaStyle.normal
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            // Left: weekly token usage.
+            if showUsage, let usage, !usage.thisWeek.isEmpty {
+                Image(systemName: "gauge.with.needle")
+                    .font(.system(size: 10, weight: .semibold))
+                Text("Panda")
+                    .fontWeight(.bold)
+                Text(l10n["usage_this_week"])
+                Text(compact(usage.thisWeek))
+                    .fontWeight(.bold)
+            }
+            if showUsage, quotaVisible {
+                Text("·")
+                    .foregroundStyle(.white.opacity(0.3))
+            }
+            // Right: plan balance, or the external model's balance.
+            if let external {
+                Image(systemName: "cpu")
+                    .font(.system(size: 10, weight: .semibold))
+                Text(external.name)
+                    .fontWeight(.bold)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                if let balance = external.balanceText {
+                    Text("\(l10n["external_balance"]) \(balance)")
+                        .fontWeight(.bold)
+                } else {
+                    Text(l10n["external_no_balance"])
+                        .foregroundStyle(.white.opacity(0.5))
+                }
+            } else if showQuota {
+                if let snapshot = quota.snapshot {
+                    Image(systemName: "creditcard")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text(snapshot.hasPlan ? snapshot.planLabel : "—")
+                        .fontWeight(.bold)
+                    Text("\(snapshot.creditsDisplay(snapshot.usedCredits)) / \(snapshot.isUnlimited ? "不限" : snapshot.creditsDisplay(snapshot.creditLimit))")
+                        .fontWeight(.bold)
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(.white.opacity(0.15))
+                        Capsule().fill(quotaColor)
+                            .frame(width: 30 * min(snapshot.usagePercent / 100, 1))
+                    }
+                    .frame(width: 30, height: 4)
+                    Text("\(Int(snapshot.usagePercent.rounded()))%")
+                        .fontWeight(.bold)
+                        .foregroundStyle(quotaColor)
+                    if !snapshot.windowEndLabel.isEmpty {
+                        Text("↻\(snapshot.windowEndLabel)")
+                            .foregroundStyle(.white.opacity(0.6))
+                    }
+                } else if let error = quota.lastError {
+                    Text(error)
+                        .foregroundStyle(.white.opacity(0.6))
+                        .lineLimit(1)
+                } else if !quota.isConfigured {
+                    Text(l10n["panda_quota_need_token"])
+                        .foregroundStyle(.white.opacity(0.6))
+                }
+            }
+            Spacer()
+        }
+        .font(.system(size: 12.5, weight: .medium, design: .monospaced))
+        .foregroundStyle(.white.opacity(0.9))
+        .lineLimit(1)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 6)
+    }
+
+    private var quotaVisible: Bool {
+        showQuota && (quota.snapshot != nil || quota.lastError != nil || !quota.isConfigured)
+    }
+
+    private func compact(_ t: ClaudeUsageTotals) -> String {
+        "\(ClaudeUsageScanner.formatTokens(t.inputTokens + t.cacheCreationTokens))↑ \(ClaudeUsageScanner.formatTokens(t.outputTokens))↓"
     }
 }
 
@@ -2414,39 +2507,28 @@ private struct NowPlayingHeaderCard: View {
 
 // MARK: - External model (Panda "custom" model selected)
 
-private struct ExternalModelFooterLine: View {
-    let model: ExternalModelMonitor.ExternalModel
-    @ObservedObject private var l10n = L10n.shared
+// MARK: - Battery (IOKit.ps power source)
+
+// MARK: - Weather (Open-Meteo + system location)
+
+private struct WeatherFooterLine: View {
+    let monitor: WeatherMonitor
 
     var body: some View {
         HStack(spacing: 5) {
-            Image(systemName: "cpu")
-                .font(.system(size: 9, weight: .semibold))
-            Text(l10n["external_model_label"])
-                .fontWeight(.semibold)
-            Text(model.name)
-                .lineLimit(1)
-                .truncationMode(.tail)
-            Text("·")
-                .foregroundStyle(.white.opacity(0.25))
-            if let balance = model.balanceText {
-                Text("\(l10n["external_balance"]) \(balance)")
-                    .fontWeight(.bold)
-            } else {
-                Text(l10n["external_no_balance"])
-                    .foregroundStyle(.white.opacity(0.35))
-            }
+            Image(systemName: WeatherMonitor.symbol(forCode: monitor.weatherCode))
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.85))
+            Text("\(monitor.temperature ?? 0)°C")
+                .font(.system(size: 12.5, weight: .bold, design: .monospaced))
+                .foregroundStyle(.white.opacity(0.9))
             Spacer()
         }
-        .font(.system(size: 11.5, weight: .medium, design: .monospaced))
-        .foregroundStyle(.white.opacity(0.9))
+        .font(.system(size: 12.5, weight: .medium, design: .monospaced))
         .padding(.horizontal, 14)
         .padding(.vertical, 6)
-        .help("\(l10n["external_model_label"]): \(model.name) (\(model.provider))")
     }
 }
-
-// MARK: - Battery (IOKit.ps power source)
 
 // MARK: - Calendar (today's events via EventKit)
 
@@ -2762,59 +2844,6 @@ private struct QuotaFooterMessage: View {
 }
 
 /// Panda plan credits — one line: plan label, used/limit, percent bar, reset date.
-private struct PandaQuotaFooterLine: View {
-    let snapshot: PandaQuotaSnapshot
-
-    private var color: Color {
-        switch snapshot.level {
-        case .normal: return QuotaStyle.normal
-        case .warning: return QuotaStyle.warning
-        case .critical: return QuotaStyle.critical
-        }
-    }
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "creditcard")
-                .font(.system(size: 9, weight: .semibold))
-            Text("Panda")
-                .fontWeight(.bold)
-            Text(snapshot.hasPlan ? snapshot.planLabel : "—")
-                .fontWeight(.bold)
-            Text("\(snapshot.creditsDisplay(snapshot.usedCredits)) / \(snapshot.isUnlimited ? "不限" : snapshot.creditsDisplay(snapshot.creditLimit))")
-                .fontWeight(.bold)
-            ZStack(alignment: .leading) {
-                Capsule().fill(.white.opacity(0.12))
-                Capsule().fill(color)
-                    .frame(width: 30 * min(snapshot.usagePercent / 100, 1))
-            }
-            .frame(width: 30, height: 4)
-            Text("\(Int(snapshot.usagePercent.rounded()))%")
-                .fontWeight(.bold)
-                .foregroundStyle(color)
-            Spacer()
-            if !snapshot.windowEndLabel.isEmpty {
-                Text("↻\(snapshot.windowEndLabel)")
-                    .foregroundStyle(.white.opacity(0.6))
-            }
-        }
-        .font(.system(size: 11.5, weight: .medium, design: .monospaced))
-        .foregroundStyle(.white.opacity(0.9))
-        .padding(.horizontal, 14)
-        .padding(.vertical, 6)
-        .help(detail)
-    }
-
-    private var detail: String {
-        var lines = [
-            "Panda \(snapshot.planLabel)",
-            "used \(snapshot.creditsDisplay(snapshot.usedCredits)) · limit \(snapshot.isUnlimited ? "不限" : snapshot.creditsDisplay(snapshot.creditLimit)) · remaining \(snapshot.creditsDisplay(snapshot.remainingCredits))",
-        ]
-        if !snapshot.windowEndLabel.isEmpty { lines.append("resets \(snapshot.windowEndLabel)") }
-        return lines.joined(separator: "\n")
-    }
-}
-
 /// Simple text footer for Panda quota states (no snapshot yet / fetch error).
 private struct PandaQuotaMessage: View {
     let text: String
@@ -2873,38 +2902,6 @@ private struct UsageFooterLine: View {
 
 /// Panda Code weekly token usage — one calendar week (Monday 00:00 through
 /// Sunday 24:00) in a single total; the sparkline buckets by natural day.
-private struct PandaUsageFooterLine: View {
-    let usage: PandaUsageScanner.Snapshot
-    @ObservedObject private var l10n = L10n.shared
-
-    var body: some View {
-        HStack(spacing: 5) {
-            Image(systemName: "gauge.with.needle")
-                .font(.system(size: 9, weight: .semibold))
-            Text("Panda")
-                .fontWeight(.bold)
-            Text("\(l10n["usage_this_week"]) \(compact(usage.thisWeek))")
-                .fontWeight(.bold)
-            Spacer()
-            DailyUsageSparkline(buckets: usage.dailyOutputTokens)
-        }
-        .font(.system(size: 11.5, weight: .medium, design: .monospaced))
-        .foregroundStyle(.white.opacity(0.9))
-        .padding(.horizontal, 14)
-        .padding(.vertical, 6)
-        .help(detail)
-    }
-
-    private func compact(_ t: ClaudeUsageTotals) -> String {
-        "\(ClaudeUsageScanner.formatTokens(t.inputTokens + t.cacheCreationTokens))↑ \(ClaudeUsageScanner.formatTokens(t.outputTokens))↓"
-    }
-
-    private var detail: String {
-        let t = usage.thisWeek
-        return "\(l10n["usage_this_week"]) (Mon–Sun): in \(ClaudeUsageScanner.formatTokens(t.inputTokens)) · out \(ClaudeUsageScanner.formatTokens(t.outputTokens)) · cache write \(ClaudeUsageScanner.formatTokens(t.cacheCreationTokens)) · cache read \(ClaudeUsageScanner.formatTokens(t.cacheReadTokens))"
-    }
-}
-
 /// Trailing-hours output-token activity, one 2.5pt bar per hour (right = now).
 private struct UsageSparkline: View {
     let buckets: [Int]

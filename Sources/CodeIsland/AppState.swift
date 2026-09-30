@@ -355,6 +355,8 @@ final class AppState {
     let externalModel = ExternalModelMonitor()
     /// Battery level / power source (IOKit.ps) — footer line; hidden on desktops.
     let battery = BatteryMonitor()
+    /// Local weather (Open-Meteo free API + one-time location consent).
+    let weather = WeatherMonitor()
     /// System wake observer: after sleep, timers have fired stale/lost XPC and
     /// every ambient card is stale or empty. Re-force all refresh paths the
     /// moment the machine wakes so the cards recover without waiting for the
@@ -384,6 +386,8 @@ final class AppState {
         externalModel.refreshIfStale(force: true)
         pandaQuota.fetchNow()
         claudeQuota.fetchNow()
+        weather.syncActivation()
+        weather.requestLocationAndFetch()
     }
     /// Process-wide, not per-instance: the scan reads one shared history
     /// (`~/.claude`), so two concurrent runs are always duplicate work. Production

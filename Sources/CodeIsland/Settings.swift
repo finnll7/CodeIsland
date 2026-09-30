@@ -104,6 +104,9 @@ enum SettingsKey {
     // Battery footer line (IOKit power source; hidden on desktops)
     static let showBattery = "showBattery"
 
+    // Weather footer line (Open-Meteo + system location, one-time consent)
+    static let showWeather = "showWeather"
+
     // Completion notification: "expand" | "glance" | "off". Successor of the
     // boolean autoExpandOnCompletion — see AppState.completionStyle migration.
     static let completionNotificationStyle = "completionNotificationStyle"
@@ -234,6 +237,7 @@ struct SettingsDefaults {
     static let showNowPlaying = true
     static let showCalendar = true
     static let showBattery = true
+    static let showWeather = true
 
     static let rotationInterval = 5
 
@@ -341,6 +345,7 @@ class SettingsManager {
             SettingsKey.showNowPlaying: SettingsDefaults.showNowPlaying,
             SettingsKey.showCalendar: SettingsDefaults.showCalendar,
             SettingsKey.showBattery: SettingsDefaults.showBattery,
+            SettingsKey.showWeather: SettingsDefaults.showWeather,
             SettingsKey.rotationInterval: SettingsDefaults.rotationInterval,
             SettingsKey.maxToolHistory: SettingsDefaults.maxToolHistory,
             SettingsKey.showTaskProgress: SettingsDefaults.showTaskProgress,

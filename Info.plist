@@ -24,6 +24,8 @@
 	<string>在灵动岛显示你日历中即将开始与正在进行的日程。</string>
 	<key>NSCalendarsUsageDescription</key>
 	<string>在灵动岛显示你日历中即将开始与正在进行的日程。</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>获取你的大致位置以在灵动岛显示当地天气。</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>
