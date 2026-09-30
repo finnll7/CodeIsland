@@ -2329,11 +2329,24 @@ private struct PandaStatsFooterLine: View {
                         Text("\(snapshot.creditsDisplay(snapshot.usedCredits)) / \(snapshot.isUnlimited ? "不限" : snapshot.creditsDisplay(snapshot.creditLimit))")
                             .fontWeight(.bold)
                         ZStack(alignment: .leading) {
-                            Capsule().fill(.white.opacity(0.15))
-                            Capsule().fill(quotaColor)
-                                .frame(width: 30 * min(snapshot.usagePercent / 100, 1))
+                            Capsule().fill(.white.opacity(0.18))
+                            // Green→amber→orange→red ramp: the fill's leading
+                            // edge lands on the color matching the usage tier.
+                            GeometryReader { geo in
+                                Capsule()
+                                    .fill(LinearGradient(
+                                        stops: [
+                                            .init(color: Color(red: 0.3, green: 0.85, blue: 0.4), location: 0),
+                                            .init(color: Color(red: 1.0, green: 0.85, blue: 0.3), location: 0.45),
+                                            .init(color: Color(red: 1.0, green: 0.55, blue: 0.28), location: 0.72),
+                                            .init(color: Color(red: 1.0, green: 0.4, blue: 0.4), location: 0.92),
+                                        ],
+                                        startPoint: .leading, endPoint: .trailing
+                                    ))
+                                    .frame(width: geo.size.width * min(snapshot.usagePercent / 100, 1))
+                            }
                         }
-                        .frame(width: 30, height: 4)
+                        .frame(width: 44, height: 5)
                         Text("\(Int(snapshot.usagePercent.rounded()))%")
                             .fontWeight(.bold)
                             .foregroundStyle(quotaColor)
