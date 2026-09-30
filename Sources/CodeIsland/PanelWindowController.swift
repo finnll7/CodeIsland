@@ -167,7 +167,14 @@ class PanelWindowController: NSObject, NSWindowDelegate {
         // The content is top-anchored and the session list scrolls internally, so the
         // window never needs to be taller than the visible screen.
         let maxH = min(desiredH, screen.visibleFrame.height)
-        let screenW = screen.frame.width
+        // Wake guard: right after sleep the notification fires while NSScreen
+        // still reports a degenerate frame — width collapses to single-digit
+        // points and every HStack in the panel wraps to one character per line.
+        // Fall back to the main screen until real numbers arrive.
+        var screenW = screen.frame.width
+        if screenW < 500, let main = NSScreen.main {
+            screenW = main.frame.width
+        }
         let width = min(620, screenW - 40)
         return NSSize(width: width, height: maxH)
     }
@@ -279,6 +286,20 @@ class PanelWindowController: NSObject, NSWindowDelegate {
                 // macOS may not have finished updating NSScreen.screens when the notification fires.
                 // Rebuild again after a short delay to pick up the final screen configuration.
                 try? await Task.sleep(nanoseconds: 500_000_000)
+                self?.refreshCurrentScreen(forceRebuild: true)
+            }
+        }
+
+        // Wake: the didChangeScreenParameters rebuild above can run while the
+        // display still reports a degenerate frame (panel collapses to a
+        // sliver). Once the display is fully awake, rebuild with real numbers.
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
                 self?.refreshCurrentScreen(forceRebuild: true)
             }
         }
