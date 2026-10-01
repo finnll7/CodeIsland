@@ -199,9 +199,14 @@ struct NotchPanelView: View {
         // degenerate frame — without the clamp every branch below collapses to
         // a sliver (all HStacks wrap one character per line).
         let maxWidth = max(min(620, screenWidth - 40), 580)
+        // Expanded always gets the full panel width — including the no-session
+        // idle expansion, whose ambient cards need ~580pt. This MUST be checked
+        // before the !isActive branch below: that branch returns the raw notch
+        // width (120pt at the 50% scale setting), which squeezed the
+        // idle-expanded cards into a vertical sliver until a session arrived.
+        if shouldShowExpanded { return min(max(nw + 200, 580), maxWidth) }
         if showIdleIndicator { return idleHovered ? nw + compactWingWidth * 2 + 80 : nw + compactWingWidth * 2 }
         if !isActive { return hasNotch ? nw - 20 : nw }
-        if shouldShowExpanded { return min(max(nw + 200, 580), maxWidth) }
         let wing = compactWingWidth
         let extra: CGFloat = appState.status == .idle ? 0 : 20
         // Reserve space for tool status — proportional to screen width
@@ -409,7 +414,6 @@ struct NotchPanelView: View {
                 // the animated width change crosses the mouse position (#52).
                 if showIdleIndicator {
                     if hovering {
-                        npCalDebug("idle hover ENTER — scheduling expansion")
                         hoverTimer?.invalidate()
                         hoverTimer = nil
                         withAnimation(NotchAnimation.micro) { idleHovered = true }
@@ -2549,19 +2553,6 @@ private struct WeatherFooterLine: View {
 }
 
 // MARK: - Calendar (today's events via EventKit)
-
-/// TEMP diagnostic: file-based, survives unified-log query unreliability.
-private func npCalDebug(_ message: String) {
-    let line = "[\(Date().formatted(date: .omitted, time: .standard))] UI: \(message)\n"
-    let path = "/tmp/codeisland-calendar.log"
-    if let handle = FileHandle(forWritingAtPath: path) {
-        defer { try? handle.close() }
-        _ = try? handle.seekToEnd()
-        try? handle.write(contentsOf: Data(line.utf8))
-    } else {
-        try? Data(line.utf8).write(to: URL(fileURLWithPath: path))
-    }
-}
 
 /// One ambient header card: calendar (left) / weather (middle) / battery
 /// (right). Covers all states — events, "no events today", and the explicit
