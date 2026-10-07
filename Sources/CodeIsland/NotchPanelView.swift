@@ -2607,11 +2607,11 @@ private struct AmbientHeaderCard: View {
                     }
                 }
                 Spacer()
-                // RIGHT — Things3 grant button (before first read) or the
-                // calendar grant button (only while ungranted and not replaced)
-                if things.needsGrant {
+                // RIGHT — Things3 grant button (before consent / while
+                // Things3 is closed) or the calendar grant button
+                if things.showsGrantButton {
                     Button {
-                        things.activate()
+                        things.activate(launchIfNeeded: true)
                     } label: {
                         Text(l10n["things_grant_button"])
                             .font(.system(size: 11, weight: .semibold))

@@ -64,6 +64,15 @@ final class Things3Monitor {
         isEnabled && isInstalled && status == .needsGrant
     }
 
+    /// Grant/retry button visibility: before the first consent, or while
+    /// Things3 is not running (clicking relaunches and re-reads).
+    var showsGrantButton: Bool {
+        guard isEnabled, isInstalled else { return false }
+        if status == .needsGrant { return true }
+        if case .failed(let message) = status { return message == "not running" }
+        return false
+    }
+
     /// True when the Things3 column should take over the calendar column.
     var takesOverCalendar: Bool {
         isEnabled && isInstalled
@@ -72,7 +81,14 @@ final class Things3Monitor {
     private var refreshTimer: Timer?
     private var activated = false
     private var scanning = false
-    private var launchRequested = false
+
+    /// Persisted consent memory: once the user clicked the grant button (and
+    /// macOS recorded the Automation permission for this bundle), later app
+    /// launches resume polling WITHOUT another button click — the TCC grant
+    /// itself is permanent, so the in-panel step is one-time.
+    private var hasGrantedOnce: Bool {
+        UserDefaults.standard.bool(forKey: SettingsKey.things3Granted)
+    }
 
     init() {
         NotificationCenter.default.addObserver(
@@ -80,24 +96,46 @@ final class Things3Monitor {
         ) { [weak self] _ in
             Task { @MainActor in self?.syncActivation() }
         }
-        // No auto-activation on init: the grant model is explicit. syncActivation
-        // only matters for the enabled toggle; the first scan starts on click.
+        // Returning user: consent was given in a previous run — resume
+        // polling right away. Things3 staying closed is fine: the scan marks
+        // "not running" and the next tick picks it up once launched.
+        if hasGrantedOnce {
+            startPolling()
+            activated = true
+            refresh()
+        }
     }
 
     // No deinit: lives as long as AppState (process lifetime).
 
     // MARK: - Activation
 
-    /// Explicit user-initiated grant (header card button). Launches Things3 if
-    /// needed and starts the 60s polling.
-    func activate() {
+    private func startPolling() {
+        guard refreshTimer == nil else { return }
+        refreshTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.refresh() }
+        }
+    }
+
+    /// Explicit user-initiated grant (header card button). `launchIfNeeded`
+    /// is only true for the button click — a user who clicks means it, while
+    /// background ticks must never force-launch Things3.
+    func activate(launchIfNeeded: Bool = false) {
+        UserDefaults.standard.set(true, forKey: SettingsKey.things3Granted)
         activated = true
-        if refreshTimer == nil {
-            refreshTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
-                Task { @MainActor in self?.refresh() }
-            }
+        startPolling()
+        if launchIfNeeded, !isRunning,
+           let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.culturedcode.ThingsMac") {
+            NSWorkspace.shared.openApplication(at: url, configuration: .init())
         }
         refresh()
+    }
+
+    private var isRunning: Bool {
+        // A plain `application "Things3" is running` check does NOT launch it.
+        NSWorkspace.shared.runningApplications.contains {
+            $0.bundleIdentifier == "com.culturedcode.ThingsMac"
+        }
     }
 
     private func syncActivation() {
@@ -109,10 +147,13 @@ final class Things3Monitor {
             status = .needsGrant
             todayItems = []
             upcomingItems = []
-        } else if activated && refreshTimer == nil {
-            refreshTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
-                Task { @MainActor in self?.refresh() }
-            }
+        } else if activated {
+            startPolling()
+        } else if hasGrantedOnce {
+            // Re-enabled after being off, with consent from an earlier run.
+            activated = true
+            startPolling()
+            refresh()
         }
     }
 
@@ -136,18 +177,9 @@ final class Things3Monitor {
         switch result {
         case .success(let output):
             if output.trimmingCharacters(in: .whitespacesAndNewlines) == "NOT_RUNNING" {
-                // First activation launches Things3; retry shortly.
-                if activated, !launchRequested {
-                    launchRequested = true
-                    if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.culturedcode.ThingsMac") {
-                        NSWorkspace.shared.openApplication(at: url, configuration: .init())
-                    }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
-                        Task { @MainActor in self?.refresh() }
-                    }
-                } else {
-                    status = .failed("not running")
-                }
+                // Things3 closed after consent — show the not-running state;
+                // the next tick recovers automatically once it launches.
+                status = .failed("not running")
             } else {
                 let parsed = Self.parse(output)
                 todayItems = parsed.today

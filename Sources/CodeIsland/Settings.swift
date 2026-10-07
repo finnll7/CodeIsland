@@ -103,6 +103,8 @@ enum SettingsKey {
 
     // Things3 header card (today's to-dos + plan via AppleScript)
     static let showThings3 = "showThings3"
+    // One-time consent memory for the Things3 Automation read (not a UI toggle)
+    static let things3Granted = "things3Granted"
 
     // Battery footer line (IOKit power source; hidden on desktops)
     static let showBattery = "showBattery"
