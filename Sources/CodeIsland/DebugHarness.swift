@@ -240,8 +240,8 @@ enum DebugHarness {
             dailyOutputTokens: [12_000, 31_400, 0, 22_800, 41_000, 0, 0],
             weekStart: PandaUsageScanner.weekStart(for: Date()),
             scannedAt: Date(),
-            liveContext: PandaUsageScanner.LiveContext(
-                contextTokens: 143_745, modelName: "claude-sonnet-4-5", updatedAt: Date())
+            contextBySessionId: ["preview-working": PandaUsageScanner.LiveContext(
+                contextTokens: 143_745, modelName: "claude-sonnet-4-5", updatedAt: Date())]
         )
         state.claudeQuota.applyPreview(ClaudeQuotaSnapshot(
             limits: [
