@@ -290,7 +290,9 @@ private enum ReadmeDemo {
             thisWeek: pandaWeek,
             dailyOutputTokens: [8_400, 26_100, 19_500, 0, 33_800, 0, 0],
             weekStart: PandaUsageScanner.weekStart(for: Date()),
-            scannedAt: Date()
+            scannedAt: Date(),
+            liveContext: PandaUsageScanner.LiveContext(
+                contextTokens: 96_420, modelName: "claude-sonnet-4-5", updatedAt: Date())
         )
         state.surface = .sessionList
         return DemoState(state: state)

@@ -71,6 +71,7 @@ final class PandaUsageScannerTests: XCTestCase {
         XCTAssertEqual(parsed.first?.usage.outputTokens, 20)
         XCTAssertEqual(parsed.first?.usage.cacheReadTokens, 100)
         XCTAssertEqual(parsed.first?.usage.cacheCreationTokens, 5)
+        XCTAssertEqual(parsed.first?.modelName, "m") // test fixture writes modelId:"m"
 
         XCTAssertTrue(PandaUsageScanner.parseTurnMetrics(#"{"type":"message"}"#).isEmpty)
         XCTAssertTrue(PandaUsageScanner.parseTurnMetrics("not json").isEmpty)
@@ -181,6 +182,49 @@ final class PandaUsageScannerTests: XCTestCase {
         let snap = PandaUsageScanner.scan(pandaHome: home, now: now, cache: &cache)
         XCTAssertEqual(snap.thisWeek.inputTokens, 1)
         XCTAssertEqual(snap.thisWeek.messageCount, 1)
+    }
+
+    func testScanReportsLiveContextOfNewestTurn() throws {
+        let now = wednesdayNoon
+        let path = home + "/projects/p1/sessions/s.jsonl"
+        // t2 started last — its prompt + cache footprint is the live context,
+        // regardless of the older (or weekly-aggregated) turns.
+        try (turnMetricsLine(turns: [
+            (id: "t1", startedAt: now.addingTimeInterval(-3600), prompt: 100, completion: 10, cached: 900, cacheWrite: 5),
+            (id: "t2", startedAt: now.addingTimeInterval(-60), prompt: 1_200, completion: 30, cached: 12_000, cacheWrite: 40),
+        ]) + "\n").write(toFile: path, atomically: true, encoding: .utf8)
+
+        let snap = PandaUsageScanner.scan(pandaHome: home, now: now)
+        let live = try XCTUnwrap(snap.liveContext)
+        XCTAssertEqual(live.contextTokens, 1_200 + 12_000 + 40)
+        XCTAssertEqual(live.modelName, "m")
+        XCTAssertEqual(live.updatedAt, now.addingTimeInterval(-60))
+    }
+
+    func testLiveContextPicksNewestAcrossFiles() throws {
+        let now = wednesdayNoon
+        try FileManager.default.createDirectory(
+            atPath: home + "/projects/p2/sessions", withIntermediateDirectories: true)
+        try (turnMetricsLine(turns: [
+            (id: "a", startedAt: now.addingTimeInterval(-1200), prompt: 500, completion: 1, cached: 0, cacheWrite: 0),
+        ]) + "\n").write(toFile: home + "/projects/p1/sessions/s.jsonl", atomically: true, encoding: .utf8)
+        try (turnMetricsLine(turns: [
+            (id: "b", startedAt: now.addingTimeInterval(-300), prompt: 700, completion: 1, cached: 50, cacheWrite: 0),
+        ]) + "\n").write(toFile: home + "/projects/p2/sessions/other.jsonl", atomically: true, encoding: .utf8)
+
+        let snap = PandaUsageScanner.scan(pandaHome: home, now: now)
+        XCTAssertEqual(snap.liveContext?.contextTokens, 750)
+    }
+
+    func testLiveContextReadsModelNameOverModelId() throws {
+        let now = wednesdayNoon
+        let path = home + "/projects/p1/sessions/s.jsonl"
+        let line = #"{"type":"session_meta","field":"turnMetrics","value":[{"turnId":"t9","startedAt":\#(epochMs(now.addingTimeInterval(-120))),"completedAt":\#(epochMs(now)),"modelId":"gw-raw","modelName":"qwen3.7-plus","promptTokens":500,"completionTokens":1,"cachedTokens":100,"cacheWriteTokens":0,"status":"completed"}],"updatedAt":0}"#
+        try (line + "\n").write(toFile: path, atomically: true, encoding: .utf8)
+
+        let snap = PandaUsageScanner.scan(pandaHome: home, now: now)
+        XCTAssertEqual(snap.liveContext?.modelName, "qwen3.7-plus")
+        XCTAssertEqual(snap.liveContext?.contextTokens, 600)
     }
 
     func testScanEmptyHome() {

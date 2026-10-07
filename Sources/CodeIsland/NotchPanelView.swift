@@ -2309,6 +2309,17 @@ private struct PandaStatsFooterLine: View {
                     Text(compact(usage.thisWeek))
                         .fontWeight(.bold)
                     Spacer()
+                    // Live context footprint of the newest turn — only while
+                    // fresh, otherwise a long-dead session's number would
+                    // masquerade as "current".
+                    if let live = usage.liveContext, Date().timeIntervalSince(live.updatedAt) < 86_400 {
+                        Image(systemName: "memorychip")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.85))
+                        Text(l10n["context_usage"])
+                        Text(ClaudeUsageScanner.formatTokens(live.contextTokens))
+                            .fontWeight(.bold)
+                    }
                     DailyUsageSparkline(buckets: usage.dailyOutputTokens)
                 }
             }
