@@ -2840,9 +2840,10 @@ private struct AmbientHeaderCard: View {
         if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
     }
 
-    /// Things3's own URL scheme lands directly on its Today view.
+    /// Things3's own URL scheme: "show?id=today" lands on its Today view
+    /// (a bare things:///today is rejected — "today" is not a command).
     private func openThings() {
-        if let url = URL(string: "things:///today") {
+        if let url = URL(string: "things:///show?id=today") {
             NSWorkspace.shared.open(url)
         } else {
             launchBundle("com.culturedcode.ThingsMac")

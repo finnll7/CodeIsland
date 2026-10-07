@@ -108,6 +108,17 @@ struct TerminalActivator {
         if let sessionId, AppState.openCoworkSession(sessionKey: sessionId) {
             return
         }
+        // Panda Desktop sessions live in ~/.panda/desktop/... — they have no
+        // terminal and no CLI process ancestry, so none of the terminal/IDE
+        // branches below can target them. The Panda Desktop app registers no
+        // URL scheme or scripting dictionary (verified against its Info.plist
+        // and binary), so per-session deep linking is impossible today — the
+        // best we can do is bring the app to front.
+        if session.source == "panda",
+           session.transcriptPath?.contains("/.panda/desktop/") == true {
+            activateByBundleId("com.pandacode.desktop")
+            return
+        }
         // A UI harness (T3 Code) owns the conversation: the terminal/multiplexer
         // env the CLI inherited belongs to wherever the harness server was
         // started, so jump to the harness instead — before Herdr/tmux routing,
