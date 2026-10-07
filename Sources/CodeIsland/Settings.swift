@@ -101,6 +101,9 @@ enum SettingsKey {
     // Calendar header card (today's events via EventKit)
     static let showCalendar = "showCalendar"
 
+    // Things3 header card (today's to-dos + plan via AppleScript)
+    static let showThings3 = "showThings3"
+
     // Battery footer line (IOKit power source; hidden on desktops)
     static let showBattery = "showBattery"
 
@@ -236,6 +239,7 @@ struct SettingsDefaults {
     static let showPandaQuota = false
     static let showNowPlaying = true
     static let showCalendar = true
+    static let showThings3 = true
     static let showBattery = true
     static let showWeather = true
 
@@ -344,6 +348,7 @@ class SettingsManager {
             SettingsKey.showPandaQuota: SettingsDefaults.showPandaQuota,
             SettingsKey.showNowPlaying: SettingsDefaults.showNowPlaying,
             SettingsKey.showCalendar: SettingsDefaults.showCalendar,
+            SettingsKey.showThings3: SettingsDefaults.showThings3,
             SettingsKey.showBattery: SettingsDefaults.showBattery,
             SettingsKey.showWeather: SettingsDefaults.showWeather,
             SettingsKey.rotationInterval: SettingsDefaults.rotationInterval,

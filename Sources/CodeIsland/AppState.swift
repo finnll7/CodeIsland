@@ -350,6 +350,9 @@ final class AppState {
     let nowPlaying = NowPlayingMonitor()
     /// Today's calendar events (EventKit) — header card; gated by showCalendar.
     let calendar = CalendarMonitor()
+    /// Things3 to-dos & plans (AppleScript) — replaces the calendar column of
+    /// the header card when enabled; gated by showThings3.
+    let things = Things3Monitor()
     /// Panda's selected model — when an external ("custom") model is active,
     /// its provider balance replaces the Panda plan card.
     let externalModel = ExternalModelMonitor()

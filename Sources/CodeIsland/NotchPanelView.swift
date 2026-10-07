@@ -2220,12 +2220,14 @@ private struct SessionListView: View {
                     .padding(.top, 10)
                     .padding(.bottom, 4)
             }
-            // Ambient card right under it — calendar (left) / weather (middle) /
-            // battery (right), covering grant, event and no-event states.
-            if appState.calendar.needsGrant || appState.calendar.isLive
+            // Ambient card right under it — Things3 to-dos (left, when enabled)
+            // or calendar / weather (middle) / battery (right).
+            if appState.things.takesOverCalendar
+                || appState.calendar.needsGrant || appState.calendar.isLive
                 || appState.weather.isLive || appState.battery.isLive, onlySessionId == nil {
                 AmbientHeaderCard(
                     calendar: appState.calendar,
+                    things: appState.things,
                     weather: appState.weather,
                     battery: appState.battery
                 )
@@ -2559,6 +2561,7 @@ private struct WeatherFooterLine: View {
 /// Calendar-access grant button (there is deliberately no automatic request).
 private struct AmbientHeaderCard: View {
     let calendar: CalendarMonitor
+    let things: Things3Monitor
     let weather: WeatherMonitor
     let battery: BatteryMonitor
     @ObservedObject private var l10n = L10n.shared
@@ -2567,10 +2570,17 @@ private struct AmbientHeaderCard: View {
     var body: some View {
         VStack(spacing: 9) {
             HStack(spacing: 14) {
-                // LEFT — calendar
-                HStack(spacing: 12) {
-                    calendarBadge
-                    calendarText
+                // LEFT — Things3 to-dos (takes over) or calendar
+                if things.takesOverCalendar {
+                    HStack(spacing: 12) {
+                        thingsBadge
+                        thingsText
+                    }
+                } else {
+                    HStack(spacing: 12) {
+                        calendarBadge
+                        calendarText
+                    }
                 }
                 Spacer()
                 // MIDDLE — weather
@@ -2597,8 +2607,21 @@ private struct AmbientHeaderCard: View {
                     }
                 }
                 Spacer()
-                // RIGHT — calendar grant button (only while ungranted)
-                if calendar.needsGrant {
+                // RIGHT — Things3 grant button (before first read) or the
+                // calendar grant button (only while ungranted and not replaced)
+                if things.needsGrant {
+                    Button {
+                        things.activate()
+                    } label: {
+                        Text(l10n["things_grant_button"])
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.9))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 7)
+                    }
+                    .buttonStyle(.plain)
+                    .background(Capsule().fill(.white.opacity(0.16)))
+                } else if calendar.needsGrant {
                     Button {
                         calendar.requestAccess()
                     } label: {
@@ -2684,6 +2707,86 @@ private struct AmbientHeaderCard: View {
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.white.opacity(0.45))
         }
+    }
+
+    /// Left column replacing the calendar while Things3 is enabled: grant
+    /// prompt / first to-do + counts / "nothing due today".
+    @ViewBuilder
+    private var thingsText: some View {
+        switch things.status {
+        case .needsGrant:
+            VStack(alignment: .leading, spacing: 3) {
+                Text(l10n["things_grant_title"])
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.95))
+                Text(l10n["things_grant_desc"])
+                    .font(.system(size: 10))
+                    .foregroundStyle(.white.opacity(0.55))
+                    .lineLimit(2)
+            }
+        case .denied:
+            Text(l10n["things_denied"])
+                .font(.system(size: 11))
+                .foregroundStyle(.white.opacity(0.55))
+                .lineLimit(2)
+        case .failed:
+            Text(l10n["things_not_running"])
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.white.opacity(0.45))
+        case .live:
+            VStack(alignment: .leading, spacing: 3) {
+                if let first = things.todayItems.first {
+                    Text(first.title)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.95))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .help(first.title)
+                    Text(thingsCountSubtitle(first))
+                        .font(.system(size: 10))
+                        .foregroundStyle(.white.opacity(0.55))
+                        .lineLimit(1)
+                } else {
+                    Text(l10n["things_none_today"])
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.55))
+                    if !things.upcomingItems.isEmpty {
+                        Text(String(format: l10n["things_counts"], 0, things.upcomingItems.count))
+                            .font(.system(size: 10))
+                            .foregroundStyle(.white.opacity(0.45))
+                            .lineLimit(1)
+                    }
+                }
+            }
+        }
+    }
+
+    /// First to-do title on top, then due time (when set) and the counts line.
+    private func thingsCountSubtitle(_ first: Things3Monitor.Item) -> String {
+        var parts: [String] = []
+        if !first.dueText.isEmpty { parts.append(first.dueText) }
+        parts.append(String(format: l10n["things_counts"], things.todayItems.count, things.upcomingItems.count))
+        return parts.joined(separator: " · ")
+    }
+
+    @ViewBuilder
+    private var thingsBadge: some View {
+        let base = RoundedRectangle(cornerRadius: 8)
+        ZStack {
+            base.fill(.white.opacity(0.12))
+            VStack(spacing: 2) {
+                Image(systemName: "checklist")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.9))
+                if things.status == .live {
+                    Text("\(things.todayItems.count)")
+                        .font(.system(size: 9, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.7))
+                }
+            }
+        }
+        .frame(width: 44, height: 44)
+        .help(l10n["things_grant_title"])
     }
 
     private var batteryBlock: some View {
