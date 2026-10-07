@@ -23,10 +23,33 @@ final class PandaUsageScannerTests: XCTestCase {
     private func turnMetricsLine(turns: [(id: String, startedAt: Date, prompt: Int, completion: Int, cached: Int, cacheWrite: Int)]) -> String {
         let entries = turns.map { t in
             """
-            {"turnId":"\(t.id)","startedAt":\(epochMs(t.startedAt)),"completedAt":\(epochMs(t.startedAt) + 60_000),"modelId":"m","promptTokens":\(t.prompt),"completionTokens":\(t.completion),"totalTokens":\(t.prompt + t.completion),"cachedTokens":\(t.cached),"cacheWriteTokens":\(t.cacheWrite),"status":"completed"}
+            {"turnId":"\(t.id)","startedAt":\(epochMs(t.startedAt)),"completedAt":\(epochMs(t.startedAt) + 60_000),"modelId":"m","promptTokens":\(t.prompt),"completionTokens":\(t.completion),"totalTokens":\(t.prompt + t.completion),"cachedTokens":\(t.cached),"cacheWriteTokens":\(t.cacheWrite),"reactLoopCount":1,"status":"completed"}
             """
         }.joined(separator: ",")
         return #"{"type":"session_meta","field":"turnMetrics","value":[\#(entries)],"updatedAt":0}"#
+    }
+
+    private func turnMetricsLine(turns: [[String: Any]]) -> String {
+        let entries = turns.map { dict in
+            (try? JSONSerialization.data(withJSONObject: dict, options: [.sortedKeys]))
+                .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+        }.joined(separator: ",")
+        return #"{"type":"session_meta","field":"turnMetrics","value":[\#(entries)],"updatedAt":0}"#
+    }
+
+    private func turnDict(id: String, startedAt: Date, prompt: Int, completion: Int, cached: Int, cacheWrite: Int, reactLoops: Int) -> [String: Any] {
+        [
+            "turnId": id,
+            "startedAt": epochMs(startedAt),
+            "completedAt": epochMs(startedAt) + 60_000,
+            "modelId": "m",
+            "promptTokens": prompt,
+            "completionTokens": completion,
+            "cachedTokens": cached,
+            "cacheWriteTokens": cacheWrite,
+            "reactLoopCount": reactLoops,
+            "status": "completed",
+        ]
     }
 
     private var calendar: Calendar { Calendar.current }
@@ -187,16 +210,18 @@ final class PandaUsageScannerTests: XCTestCase {
     func testScanReportsLiveContextOfNewestTurn() throws {
         let now = wednesdayNoon
         let path = home + "/projects/p1/sessions/s.jsonl"
-        // t2 started last — its prompt + cache footprint is the live context,
-        // regardless of the older (or weekly-aggregated) turns.
+        // t2 started last — its per-request footprint (prompt+cache summed
+        // across the turn's LLM rounds, divided by the round count) is the
+        // live context, regardless of the older turns.
         try (turnMetricsLine(turns: [
-            (id: "t1", startedAt: now.addingTimeInterval(-3600), prompt: 100, completion: 10, cached: 900, cacheWrite: 5),
-            (id: "t2", startedAt: now.addingTimeInterval(-60), prompt: 1_200, completion: 30, cached: 12_000, cacheWrite: 40),
+            turnDict(id: "t1", startedAt: now.addingTimeInterval(-3600), prompt: 100, completion: 10, cached: 900, cacheWrite: 5, reactLoops: 3),
+            turnDict(id: "t2", startedAt: now.addingTimeInterval(-60), prompt: 1_200, completion: 30, cached: 12_000, cacheWrite: 40, reactLoops: 4),
         ]) + "\n").write(toFile: path, atomically: true, encoding: .utf8)
 
         let snap = PandaUsageScanner.scan(pandaHome: home, now: now)
         let live = try XCTUnwrap(snap.liveContext)
-        XCTAssertEqual(live.contextTokens, 1_200 + 12_000 + 40)
+        // (1_200 + 12_000 + 40) accumulated across 4 rounds → 3_310 per request.
+        XCTAssertEqual(live.contextTokens, 3_310)
         XCTAssertEqual(live.modelName, "m")
         XCTAssertEqual(live.updatedAt, now.addingTimeInterval(-60))
     }
@@ -213,18 +238,31 @@ final class PandaUsageScannerTests: XCTestCase {
         ]) + "\n").write(toFile: home + "/projects/p2/sessions/other.jsonl", atomically: true, encoding: .utf8)
 
         let snap = PandaUsageScanner.scan(pandaHome: home, now: now)
+        // Both fixtures use reactLoopCount=1 → sums pass through.
         XCTAssertEqual(snap.liveContext?.contextTokens, 750)
     }
 
     func testLiveContextReadsModelNameOverModelId() throws {
         let now = wednesdayNoon
         let path = home + "/projects/p1/sessions/s.jsonl"
-        let line = #"{"type":"session_meta","field":"turnMetrics","value":[{"turnId":"t9","startedAt":\#(epochMs(now.addingTimeInterval(-120))),"completedAt":\#(epochMs(now)),"modelId":"gw-raw","modelName":"qwen3.7-plus","promptTokens":500,"completionTokens":1,"cachedTokens":100,"cacheWriteTokens":0,"status":"completed"}],"updatedAt":0}"#
+        let line = #"{"type":"session_meta","field":"turnMetrics","value":[{"turnId":"t9","startedAt":\#(epochMs(now.addingTimeInterval(-120))),"completedAt":\#(epochMs(now)),"modelId":"gw-raw","modelName":"qwen3.7-plus","promptTokens":500,"completionTokens":1,"cachedTokens":100,"cacheWriteTokens":0,"reactLoopCount":2,"status":"completed"}],"updatedAt":0}"#
         try (line + "\n").write(toFile: path, atomically: true, encoding: .utf8)
 
         let snap = PandaUsageScanner.scan(pandaHome: home, now: now)
         XCTAssertEqual(snap.liveContext?.modelName, "qwen3.7-plus")
-        XCTAssertEqual(snap.liveContext?.contextTokens, 600)
+        // (500 + 100 + 0) / 2 rounds = 300.
+        XCTAssertEqual(snap.liveContext?.contextTokens, 300)
+    }
+
+    func testLiveContextFallsBackToFullSumWithoutRounds() throws {
+        let now = wednesdayNoon
+        let path = home + "/projects/p1/sessions/s.jsonl"
+        // Missing/zero reactLoopCount must not zero out the estimate.
+        let line = #"{"type":"session_meta","field":"turnMetrics","value":[{"turnId":"tz","startedAt":\#(epochMs(now.addingTimeInterval(-60))),"completedAt":\#(epochMs(now)),"promptTokens":480,"completionTokens":20,"cachedTokens":0,"cacheWriteTokens":0,"status":"completed"}],"updatedAt":0}"#
+        try (line + "\n").write(toFile: path, atomically: true, encoding: .utf8)
+
+        let snap = PandaUsageScanner.scan(pandaHome: home, now: now)
+        XCTAssertEqual(snap.liveContext?.contextTokens, 480)
     }
 
     func testScanEmptyHome() {

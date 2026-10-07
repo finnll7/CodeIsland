@@ -2319,6 +2319,7 @@ private struct PandaStatsFooterLine: View {
                         Text(l10n["context_usage"])
                         Text(ClaudeUsageScanner.formatTokens(live.contextTokens))
                             .fontWeight(.bold)
+                            .help((live.modelName.map { "\($0) · " } ?? "") + l10n["context_usage_hint"])
                     }
                     DailyUsageSparkline(buckets: usage.dailyOutputTokens)
                 }

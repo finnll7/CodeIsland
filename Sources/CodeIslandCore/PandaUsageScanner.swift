@@ -53,8 +53,12 @@ public enum PandaUsageScanner {
 
     /// The context footprint of the newest turn in the newest transcript.
     public struct LiveContext: Equatable, Sendable {
-        /// prompt + cache-read + cache-write tokens of that turn — the input
-        /// size the next request in the same conversation would carry.
+        /// Estimated CURRENT conversation size: the newest turn's prompt +
+        /// cache token totals divided by its LLM round-trips. turnMetrics
+        /// accumulates across every request in the turn (each agent-loop
+        /// round re-sends the whole context), so the per-request average is
+        /// the only context estimate the transcript offers — and the last
+        /// request in a turn is the one that defines the conversation size.
         public let contextTokens: Int
         public let modelName: String?
         /// When that turn started (not completed — an in-flight turn reports
@@ -204,11 +208,17 @@ public enum PandaUsageScanner {
             for turn in parsed {
                 entry.turns[turn.turnId] = (turn.timestamp, turn.usage)
                 // Track the newest started turn for the live-context readout.
-                // Later lines carry grown (settled or in-flight) counts.
+                // Later lines carry grown (settled or in-flight) counts. The
+                // accumulated prompt+cache sum spans EVERY agent-loop round of
+                // the turn — divide by the round count for the per-request
+                // (i.e. context-sized) footprint.
                 if entry.latest == nil || turn.timestamp > entry.latest!.timestamp {
+                    let contextSum = turn.usage.inputTokens
+                        + turn.usage.cacheReadTokens
+                        + turn.usage.cacheCreationTokens
                     entry.latest = (
                         turn.timestamp,
-                        turn.usage.inputTokens + turn.usage.cacheReadTokens + turn.usage.cacheCreationTokens,
+                        contextSum / max(turn.reactLoops, 1),
                         turn.modelName
                     )
                 }
@@ -217,11 +227,14 @@ public enum PandaUsageScanner {
     }
 
     /// Parse one turnMetrics snapshot line into per-turn
-    /// (turnId, startedAt, usage, modelName) tuples. Returns [] for
-    /// non-metrics lines.
+    /// (turnId, startedAt, usage, modelName, reactLoops) tuples. Returns []
+    /// for non-metrics lines.
     /// Field mapping: promptTokens→input, completionTokens→output,
     /// cachedTokens→cache read, cacheWriteTokens→cache creation.
-    static func parseTurnMetrics(_ line: String) -> [(turnId: String, timestamp: Date, usage: ClaudeUsageTotals, modelName: String?)] {
+    /// promptTokens/cachedTokens ACCUMULATE over the turn's agent-loop rounds
+    /// (each round re-sends the full context), so `reactLoops` is needed to
+    /// derive a per-request (context-sized) figure.
+    static func parseTurnMetrics(_ line: String) -> [(turnId: String, timestamp: Date, usage: ClaudeUsageTotals, modelName: String?, reactLoops: Int)] {
         guard let data = line.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               obj["type"] as? String == "session_meta",
@@ -229,7 +242,7 @@ public enum PandaUsageScanner {
               let value = obj["value"] as? [[String: Any]]
         else { return [] }
 
-        var result: [(String, Date, ClaudeUsageTotals, String?)] = []
+        var result: [(String, Date, ClaudeUsageTotals, String?, Int)] = []
         result.reserveCapacity(value.count)
         for turn in value {
             guard let turnId = turn["turnId"] as? String, !turnId.isEmpty,
@@ -242,7 +255,8 @@ public enum PandaUsageScanner {
             usage.messageCount = 1
             let modelName = turn["modelName"] as? String
                 ?? ((turn["modelId"] as? String).map { $0.isEmpty ? nil : $0 } ?? nil)
-            result.append((turnId, Date(timeIntervalSince1970: startedAtMs / 1000), usage, modelName))
+            let reactLoops = (turn["reactLoopCount"] as? Int ?? 0)
+            result.append((turnId, Date(timeIntervalSince1970: startedAtMs / 1000), usage, modelName, reactLoops))
         }
         return result
     }
