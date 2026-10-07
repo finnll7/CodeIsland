@@ -41,13 +41,25 @@ public enum PandaUsageScanner {
         /// currently carrying. In-flight turns re-emit their turnMetrics
         /// snapshot every round, so this tracks the live conversation.
         public let liveContext: LiveContext?
+        /// Per-session live context, keyed by the Panda sessionId (which is
+        /// the transcript file stem: `sessions/<sessionId>.jsonl`). Lets the
+        /// UI show every task's own context usage next to its name.
+        public let contextBySessionId: [String: LiveContext]
 
-        public init(thisWeek: ClaudeUsageTotals, dailyOutputTokens: [Int], weekStart: Date, scannedAt: Date, liveContext: LiveContext? = nil) {
+        public init(
+            thisWeek: ClaudeUsageTotals,
+            dailyOutputTokens: [Int],
+            weekStart: Date,
+            scannedAt: Date,
+            liveContext: LiveContext? = nil,
+            contextBySessionId: [String: LiveContext] = [:]
+        ) {
             self.thisWeek = thisWeek
             self.dailyOutputTokens = dailyOutputTokens
             self.weekStart = weekStart
             self.scannedAt = scannedAt
             self.liveContext = liveContext
+            self.contextBySessionId = contextBySessionId
         }
     }
 
@@ -123,6 +135,7 @@ public enum PandaUsageScanner {
         var daily = [Int](repeating: 0, count: daysPerWeek)
         var activeFiles = Set<String>()
         var liveContext: LiveContext?
+        var contextBySessionId: [String: LiveContext] = [:]
 
         let fm = FileManager.default
         // Panda Desktop writes transcripts under ~/.panda/desktop/projects/...,
@@ -169,12 +182,35 @@ public enum PandaUsageScanner {
                             modelName: latest.modelName,
                             updatedAt: latest.timestamp)
                     }
+                    // Per-session map keyed by the transcript file stem —
+                    // Panda's sessionId IS the file name (SessionTitleStore
+                    // relies on the same identity).
+                    if let latest = entry.latest {
+                        let stem = (path as NSString).lastPathComponent
+                        let sessionId = stem.hasSuffix(".jsonl") ? String(stem.dropLast(6)) : stem
+                        let candidate = LiveContext(
+                            contextTokens: latest.contextTokens,
+                            modelName: latest.modelName,
+                            updatedAt: latest.timestamp)
+                        if let existing = contextBySessionId[sessionId],
+                           existing.updatedAt >= candidate.updatedAt {
+                            // Two trees carried the same sessionId — keep the newer.
+                        } else {
+                            contextBySessionId[sessionId] = candidate
+                        }
+                    }
                 }
             }
         }
         // Files that fell out of the mtime window carry no in-window turns.
         cache.files = cache.files.filter { activeFiles.contains($0.key) }
-        return Snapshot(thisWeek: thisWeek, dailyOutputTokens: daily, weekStart: monday, scannedAt: now, liveContext: liveContext)
+        return Snapshot(
+            thisWeek: thisWeek,
+            dailyOutputTokens: daily,
+            weekStart: monday,
+            scannedAt: now,
+            liveContext: liveContext,
+            contextBySessionId: contextBySessionId)
     }
 
     /// Whole-day offset between two dates in the same week (0 = Monday).

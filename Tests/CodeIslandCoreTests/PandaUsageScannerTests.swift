@@ -265,6 +265,25 @@ final class PandaUsageScannerTests: XCTestCase {
         XCTAssertEqual(snap.liveContext?.contextTokens, 480)
     }
 
+    func testLiveContextKeysBySessionIdAcrossFiles() throws {
+        let now = wednesdayNoon
+        try FileManager.default.createDirectory(
+            atPath: home + "/projects/p2/sessions", withIntermediateDirectories: true)
+        try (turnMetricsLine(turns: [
+            (id: "a", startedAt: now.addingTimeInterval(-1200), prompt: 500, completion: 1, cached: 0, cacheWrite: 0),
+        ]) + "\n").write(toFile: home + "/projects/p1/sessions/sess-aaa.jsonl", atomically: true, encoding: .utf8)
+        try (turnMetricsLine(turns: [
+            (id: "b", startedAt: now.addingTimeInterval(-300), prompt: 700, completion: 1, cached: 50, cacheWrite: 0),
+        ]) + "\n").write(toFile: home + "/projects/p2/sessions/sess-bbb.jsonl", atomically: true, encoding: .utf8)
+
+        let snap = PandaUsageScanner.scan(pandaHome: home, now: now)
+        XCTAssertEqual(snap.contextBySessionId["sess-aaa"]?.contextTokens, 500)
+        XCTAssertEqual(snap.contextBySessionId["sess-bbb"]?.contextTokens, 750)
+        XCTAssertEqual(snap.contextBySessionId.count, 2)
+        // Global readout stays the newest turn across sessions.
+        XCTAssertEqual(snap.liveContext?.contextTokens, 750)
+    }
+
     func testScanEmptyHome() {
         let snap = PandaUsageScanner.scan(pandaHome: home + "/nonexistent", now: wednesdayNoon)
         XCTAssertTrue(snap.thisWeek.isEmpty)

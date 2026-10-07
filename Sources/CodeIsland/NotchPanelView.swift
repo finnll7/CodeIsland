@@ -2269,7 +2269,8 @@ private struct SessionListView: View {
                     quota: appState.pandaQuota,
                     external: appState.externalModel.externalModel,
                     showUsage: showPandaUsage,
-                    showQuota: showPandaQuota
+                    showQuota: showPandaQuota,
+                    focusedSessionId: appState.activeSessionId
                 )
             }
         }
@@ -2284,6 +2285,10 @@ private struct PandaStatsFooterLine: View {
     let external: ExternalModelMonitor.ExternalModel?
     let showUsage: Bool
     let showQuota: Bool
+    /// The session the panel is currently focused on — the context readout
+    /// follows it (falls back to the globally newest panda turn when the
+    /// focused session carries no panda context).
+    var focusedSessionId: String?
     @ObservedObject private var l10n = L10n.shared
 
     private var quotaColor: Color {
@@ -2300,6 +2305,10 @@ private struct PandaStatsFooterLine: View {
         VStack(spacing: 4) {
             // Row 1 — weekly token usage.
             if showUsage, let usage, !usage.thisWeek.isEmpty {
+                // Context follows the focused session; fall back to the
+                // globally newest panda turn when the focus has no panda
+                // context (e.g. a Claude session is selected).
+                let live = focusedSessionId.flatMap { usage.contextBySessionId[$0] } ?? usage.liveContext
                 HStack(spacing: 5) {
                     Image(systemName: "gauge.with.needle")
                         .font(.system(size: 10, weight: .semibold))
@@ -2309,10 +2318,10 @@ private struct PandaStatsFooterLine: View {
                     Text(compact(usage.thisWeek))
                         .fontWeight(.bold)
                     Spacer()
-                    // Live context footprint of the newest turn — only while
+                    // Live context footprint of the focused turn — only while
                     // fresh, otherwise a long-dead session's number would
                     // masquerade as "current".
-                    if let live = usage.liveContext, Date().timeIntervalSince(live.updatedAt) < 86_400 {
+                    if let live, Date().timeIntervalSince(live.updatedAt) < 86_400 {
                         Image(systemName: "memorychip")
                             .font(.system(size: 10, weight: .semibold))
                             .foregroundStyle(.white.opacity(0.85))
@@ -3374,6 +3383,18 @@ private struct SessionCard: View {
                     HStack(spacing: 4) {
                         if let remote = session.remoteDisplayName {
                             SessionTag("@\(remote)", color: Color(red: 0.45, green: 0.72, blue: 1.0))
+                        }
+                        // Panda per-task context usage — each card shows its
+                        // own conversation size (Panda sessionIds ARE the
+                        // transcript file stems the scanner keys on).
+                        if session.source == "panda",
+                           let usage = appState.pandaUsage?.contextBySessionId[sessionId],
+                           Date().timeIntervalSince(usage.updatedAt) < 86_400 {
+                            SessionTag(
+                                "\(L10n.shared["context_usage"]) \(ClaudeUsageScanner.formatTokens(usage.contextTokens))",
+                                color: .white.opacity(0.62)
+                            )
+                            .help((usage.modelName.map { "\($0) · " } ?? "") + L10n.shared["context_usage_hint"])
                         }
                         if !session.subagents.isEmpty {
                             SessionTag("+\(session.subagents.count) Sub", color: Color(red: 0.65, green: 0.55, blue: 0.95))
