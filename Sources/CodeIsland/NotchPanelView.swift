@@ -2570,17 +2570,24 @@ private struct AmbientHeaderCard: View {
     var body: some View {
         VStack(spacing: 9) {
             HStack(spacing: 14) {
-                // LEFT — Things3 to-dos (takes over) or calendar
+                // LEFT — Things3 to-dos (takes over) or calendar. Clicking a
+                // column opens the app the data came from.
                 if things.takesOverCalendar {
                     HStack(spacing: 12) {
                         thingsBadge
                         thingsText
                     }
+                    .contentShape(Rectangle())
+                    .onTapGesture { openThings() }
+                    .onHover { h in handCursor(h) }
                 } else {
                     HStack(spacing: 12) {
                         calendarBadge
                         calendarText
                     }
+                    .contentShape(Rectangle())
+                    .onTapGesture { openCalendar() }
+                    .onHover { h in handCursor(h) }
                 }
                 Spacer()
                 // MIDDLE — weather
@@ -2605,6 +2612,9 @@ private struct AmbientHeaderCard: View {
                             }
                         }
                     }
+                    .contentShape(Rectangle())
+                    .onTapGesture { launchBundle("com.apple.weather") }
+                    .onHover { h in handCursor(h) }
                 }
                 Spacer()
                 // RIGHT — Things3 grant button (before consent / while
@@ -2805,6 +2815,15 @@ private struct AmbientHeaderCard: View {
                 .font(.system(size: 9))
                 .foregroundStyle(.white.opacity(0.5))
         }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            // Battery has no app of its own — land on its System Settings pane
+            // (unknown extension ids open the settings root, which is fine).
+            if let url = URL(string: "x-apple.systempreferences:com.apple.Battery-Settings.extension") {
+                NSWorkspace.shared.open(url)
+            }
+        }
+        .onHover { h in handCursor(h) }
     }
 
     private var batteryColor: Color {
@@ -2813,6 +2832,30 @@ private struct AmbientHeaderCard: View {
 
     private func subtitle(_ event: CalendarMonitor.DisplayEvent) -> String {
         CalendarMonitor.countdownText(event: event, now: now) { l10n[$0] }
+    }
+
+    // MARK: - Open the source app on column click
+
+    private func handCursor(_ hovering: Bool) {
+        if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+    }
+
+    /// Things3's own URL scheme lands directly on its Today view.
+    private func openThings() {
+        if let url = URL(string: "things:///today") {
+            NSWorkspace.shared.open(url)
+        } else {
+            launchBundle("com.culturedcode.ThingsMac")
+        }
+    }
+
+    private func openCalendar() {
+        launchBundle("com.apple.iCal")
+    }
+
+    private func launchBundle(_ bundleId: String) {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) else { return }
+        NSWorkspace.shared.openApplication(at: url, configuration: .init())
     }
 }
 
