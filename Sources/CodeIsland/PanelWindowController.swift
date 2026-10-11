@@ -202,8 +202,6 @@ class PanelWindowController: NSObject, NSWindowDelegate {
     private var lastDisplayChoice = ""
     private var lastNotchHeightMode = SettingsDefaults.notchHeightMode
     private var lastCustomNotchHeight = SettingsDefaults.customNotchHeight
-    /// Debounced window-height adjust (see scheduleWindowHeightAdjust).
-    private var heightAdjustItem: DispatchWorkItem?
     /// Post-settle surface recommit (see scheduleSurfaceSettleRecommit).
     private var surfaceRecommitItem: DispatchWorkItem?
     private var lastSurfaceForRecommit: IslandSurface = .collapsed
@@ -245,7 +243,6 @@ class PanelWindowController: NSObject, NSWindowDelegate {
         let screen = chosenScreen()
         let contentView = makeHostingView(for: screen)
         self.hostingView = contentView
-        observeCardSpaceChanges()
 
         let size = panelSize
         let panel = KeyablePanel(
@@ -593,62 +590,6 @@ class PanelWindowController: NSObject, NSWindowDelegate {
     }
 
     /// Sizes the panel window to its measured content while the session list
-    /// is open — the ambient header cards (Now Playing / Calendar) plus the
-    /// stats footer must all be visible, which the fixed desiredHeight
-    /// clipped. Top edge stays anchored at the screen top; only the bottom
-    /// moves. The observation re-arms itself (see observeSessionsChanges).
-    private func observeCardSpaceChanges() {
-        withObservationTracking { [weak self] in
-            _ = self?.appState.cardSpace.panelHeight
-        } onChange: { [weak self] in
-            Task { @MainActor in
-                self?.scheduleWindowHeightAdjust()
-                self?.observeCardSpaceChanges()
-            }
-        }
-    }
-
-    /// Coalesce the per-animation-frame `panelHeight` reports into a single
-    /// `setFrame` once the layout settles. `onGeometryChange` fires on every
-    /// animated geometry frame, and resizing the borderless, non-opaque panel
-    /// dozens of times per open/close animation leaves staggered ghost trails
-    /// on screen: the macOS 26 WindowServer composites each intermediate
-    /// window frame and, once the app stops committing, the trails stay until
-    /// the next redraw — the layered-stripes corruption seen after wake and
-    /// idle expansion. One settled resize (plus the post-settle recommit
-    /// below) keeps the screen clean.
-    private func scheduleWindowHeightAdjust() {
-        heightAdjustItem?.cancel()
-        let item = DispatchWorkItem { [weak self] in
-            self?.adjustWindowHeightForSessionList()
-        }
-        heightAdjustItem = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: item)
-    }
-
-    private func adjustWindowHeightForSessionList() {
-        guard let panel, panel.isVisible,
-              appState.cardSpace.panelHeight > 0 else { return }
-        let screen = chosenScreen()
-        // Any expanded surface fits its measured content; once the island
-        // collapses again the window returns to the standard panel height so
-        // a stale tall surface doesn't linger under the menu bar.
-        let targetH: CGFloat
-        if appState.surface.isExpanded {
-            targetH = min(
-                max(120, appState.cardSpace.panelHeight + 4),
-                screen.visibleFrame.height
-            )
-        } else {
-            targetH = panelSize(for: screen).height
-        }
-        guard abs(panel.frame.height - targetH) > 1 else { return }
-        var frame = panel.frame
-        frame.origin.y = frame.maxY - targetH // keep the top edge anchored
-        frame.size.height = targetH
-        panel.setFrame(frame, display: true)
-    }
-
     /// Force one clean recommit of the panel surface after the open/close
     /// spring settles (~0.7s). The macOS 26 WindowServer can leave staggered
     /// ghost frames on screen after the width/height springs animated this

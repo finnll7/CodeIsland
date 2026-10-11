@@ -64,8 +64,15 @@ private let sidebarGroups: [SidebarGroup] = [
 
 struct SettingsView: View {
     @ObservedObject private var l10n = L10n.shared
-    @State private var selectedPage: SettingsPage = .general
+    @State private var selectedPage: SettingsPage
     var appState: AppState?
+
+    /// `initialPage` opens the window on that page (the offscreen UI gallery
+    /// renders every page through it).
+    init(appState: AppState? = nil, initialPage: SettingsPage = .general) {
+        self.appState = appState
+        _selectedPage = State(initialValue: initialPage)
+    }
 
     var body: some View {
         NavigationSplitView {
@@ -691,6 +698,7 @@ private struct HooksPage: View {
             cliStatuses[cli.source] = ConfigInstaller.isInstalled(source: cli.source)
         }
         cliStatuses["opencode"] = ConfigInstaller.isInstalled(source: "opencode")
+        cliStatuses["mimo"] = ConfigInstaller.isInstalled(source: "mimo")
         cliStatuses["aiwork"] = ConfigInstaller.isInstalled(source: "aiwork")
         cliStatuses["aiwork-cli"] = ConfigInstaller.isInstalled(source: "aiwork-cli")
         extraDirStatuses = ConfigInstaller.extraConfigDirStatuses()
@@ -805,6 +813,19 @@ private struct HooksPage: View {
                     exists: ocExists
                 ) { enabled in applySourceToggle(source: "opencode", enabled: enabled) }
                 .id("opencode-\(refreshKey)")
+
+                // MiMo Code CLI + Xiaomi MiMo desktop (one plugin, auto-loaded)
+                let mimoInstalled = cliStatuses["mimo"] ?? false
+                let mimoExists = ConfigInstaller.cliExists(source: "mimo")
+                CLIStatusRow(
+                    name: "MiMo Code / Xiaomi MiMo",
+                    source: "mimo",
+                    configPath: "~/.config/mimocode/plugins/codeisland.js",
+                    fullPath: ConfigInstaller.mimoPluginPath(),
+                    installed: mimoInstalled,
+                    exists: mimoExists
+                ) { enabled in applySourceToggle(source: "mimo", enabled: enabled) }
+                .id("mimo-\(refreshKey)")
 
                 // AiWork GUI + CLI/TUI (Agentix daemon watch — no hooks)
                 let dtInstalled = cliStatuses["aiwork"] ?? false
@@ -952,6 +973,9 @@ private struct HooksPage: View {
                         if ConfigInstaller.cliExists(source: "opencode") {
                             UserDefaults.standard.set(true, forKey: "cli_enabled_opencode")
                         }
+                        if ConfigInstaller.cliExists(source: "mimo") {
+                            UserDefaults.standard.set(true, forKey: "cli_enabled_mimo")
+                        }
                         if ConfigInstaller.cliExists(source: "aiwork") {
                             UserDefaults.standard.set(true, forKey: "cli_enabled_aiwork")
                         }
@@ -985,6 +1009,7 @@ private struct HooksPage: View {
                             UserDefaults.standard.set(false, forKey: "cli_enabled_\(cli.source)")
                         }
                         UserDefaults.standard.set(false, forKey: "cli_enabled_opencode")
+                        UserDefaults.standard.set(false, forKey: "cli_enabled_mimo")
                         UserDefaults.standard.set(false, forKey: "cli_enabled_aiwork")
                         UserDefaults.standard.set(false, forKey: "cli_enabled_aiwork-cli")
                         appState?.stopAiWorkWatcher()
@@ -1257,6 +1282,7 @@ enum ContentFontSize {
 private struct AppearancePage: View {
     @ObservedObject private var l10n = L10n.shared
     @AppStorage(SettingsKey.maxVisibleSessions) private var maxVisibleSessions = SettingsDefaults.maxVisibleSessions
+    @AppStorage(SettingsKey.sessionListDensity) private var sessionListDensityRaw = SettingsDefaults.sessionListDensity
     @AppStorage(SettingsKey.contentFontSize) private var contentFontSize = SettingsDefaults.contentFontSize
     @AppStorage(SettingsKey.aiMessageLines) private var aiMessageLines = SettingsDefaults.aiMessageLines
     @AppStorage(SettingsKey.showAgentDetails) private var showAgentDetails = SettingsDefaults.showAgentDetails
@@ -1276,6 +1302,7 @@ private struct AppearancePage: View {
     @AppStorage(SettingsKey.showBattery) private var showBattery = SettingsDefaults.showBattery
     @AppStorage(SettingsKey.showWeather) private var showWeather = SettingsDefaults.showWeather
     @AppStorage(SettingsKey.pandaGatewayToken) private var pandaGatewayToken = ""
+    @AppStorage(SettingsKey.claudeQuotaChip) private var claudeQuotaChip = SettingsDefaults.claudeQuotaChip
     @AppStorage(SettingsKey.collapsedWidthScale) private var collapsedWidthScale = SettingsDefaults.collapsedWidthScale
     @AppStorage(SettingsKey.notchHeightMode) private var notchHeightModeRaw = SettingsDefaults.notchHeightMode
     @AppStorage(SettingsKey.customNotchHeight) private var customNotchHeight = SettingsDefaults.customNotchHeight
@@ -1285,6 +1312,13 @@ private struct AppearancePage: View {
         Binding(
             get: { NotchHeightMode(rawValue: notchHeightModeRaw) ?? .matchNotch },
             set: { notchHeightModeRaw = $0.rawValue }
+        )
+    }
+
+    private var sessionListDensityBinding: Binding<SessionListDensity> {
+        Binding(
+            get: { SessionListDensity(storedValue: sessionListDensityRaw) },
+            set: { sessionListDensityRaw = $0.rawValue }
         )
     }
 
@@ -1301,7 +1335,8 @@ private struct AppearancePage: View {
                 AppearancePreview(
                     fontSize: contentFontSize,
                     lineLimit: aiMessageLines,
-                    showDetails: showAgentDetails
+                    showDetails: showAgentDetails,
+                    density: sessionListDensityBinding.wrappedValue
                 )
             }
 
@@ -1333,7 +1368,17 @@ private struct AppearancePage: View {
                     Text(l10n["unlimited"]).tag(99)
                 } label: {
                     Text(l10n["max_visible_sessions"])
-                    Text(l10n["max_visible_sessions_desc"])
+                    // Compact scrolls by height, not by count.
+                    Text(l10n[sessionListDensityBinding.wrappedValue == .compact
+                        ? "max_visible_sessions_desc_compact" : "max_visible_sessions_desc"])
+                }
+                Picker(selection: sessionListDensityBinding) {
+                    ForEach(SessionListDensity.allCases, id: \.self) { density in
+                        Text(l10n[density.titleKey]).tag(density)
+                    }
+                } label: {
+                    Text(l10n["session_list_density"])
+                    Text(l10n["session_list_density_desc"])
                 }
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
@@ -1485,6 +1530,14 @@ private struct AppearancePage: View {
                         .font(.system(size: 11))
                         .foregroundStyle(.tertiary)
                 }
+                Picker(l10n["claude_quota_chip"], selection: $claudeQuotaChip) {
+                    Text(l10n["quota_chip_off"]).tag(ClaudeQuotaChipMode.off.rawValue)
+                    Text(l10n["quota_chip_auto"]).tag(ClaudeQuotaChipMode.auto.rawValue)
+                    Text(l10n["quota_chip_session"]).tag(ClaudeQuotaChipMode.session.rawValue)
+                    Text(l10n["quota_chip_weekly"]).tag(ClaudeQuotaChipMode.weeklyAll.rawValue)
+                    Text(l10n["quota_chip_weekly_model"]).tag(ClaudeQuotaChipMode.weeklyScoped.rawValue)
+                }
+                .disabled(!showClaudeQuota)
             }
         }
         .formStyle(.grouped)
@@ -1496,10 +1549,10 @@ private struct AppearancePreview: View {
     let fontSize: Int
     let lineLimit: Int
     let showDetails: Bool
+    var density: SessionListDensity = .comfortable
 
     private var fs: CGFloat { CGFloat(fontSize) }
-    private let green = Color(red: 0.3, green: 0.85, blue: 0.4)
-    private let aiColor = Color(red: 0.85, green: 0.47, blue: 0.34)
+    private let status = SessionCardStatus.working
     private static let sampleReply = """
         Found the issue in `auth.ts`:
         - token refresh was **skipping the expiry check**
@@ -1507,10 +1560,34 @@ private struct AppearancePreview: View {
         """
 
     var body: some View {
-        HStack(alignment: .center, spacing: 8) {
+        Group {
+            switch density {
+            case .comfortable: card
+            case .compact: compactRow
+            }
+        }
+        .background(
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color(white: 0.05))
+                Rectangle()
+                    .fill(status.railColor)
+                    .frame(width: 3)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        )
+        .animation(.easeInOut(duration: 0.25), value: fontSize)
+        .animation(.easeInOut(duration: 0.25), value: lineLimit)
+        .animation(.easeInOut(duration: 0.25), value: showDetails)
+        .animation(.easeInOut(duration: 0.25), value: density)
+    }
+
+    /// The session card as the list draws it (Comfortable).
+    private var card: some View {
+        HStack(alignment: .top, spacing: 10) {
             // Column 1: Mascot
             VStack(spacing: 3) {
-                MascotView(source: "claude", status: .processing, size: 32)
+                MascotView(source: "claude", status: .running, size: 32)
                 if showDetails {
                     HStack(spacing: 1) {
                         MiniAgentIcon(active: true, size: 8)
@@ -1521,12 +1598,13 @@ private struct AppearancePreview: View {
             .frame(width: 36)
 
             // Column 2: Content
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 5) {
                 // Header
                 HStack(spacing: 6) {
+                    SessionStatusChip(status: status, fontSize: SessionStatusChip.fontSize(content: fs))
                     Text("my-project")
                         .font(.system(size: fs + 2, weight: .bold, design: .monospaced))
-                        .foregroundStyle(green)
+                        .foregroundStyle(.white.opacity(0.95))
                     Spacer()
                     Text("3m")
                         .font(.system(size: max(9, fs - 1.5), weight: .medium, design: .monospaced))
@@ -1539,50 +1617,71 @@ private struct AppearancePreview: View {
                 // Chat
                 VStack(alignment: .leading, spacing: 3) {
                     // User prompt
-                    HStack(alignment: .top, spacing: 4) {
-                        Text(">")
-                            .font(.system(size: fs, weight: .bold, design: .monospaced))
-                            .foregroundStyle(green)
+                    HStack(alignment: .top, spacing: 5) {
+                        glyph(SessionGlyph.prompt, color: SessionGlyph.promptColor)
                         Text("Fix the login bug")
-                            .font(.system(size: fs, weight: .medium, design: .monospaced))
-                            .foregroundStyle(.white.opacity(0.9))
+                            .font(.system(size: fs, design: .monospaced))
+                            .foregroundStyle(SessionGlyph.promptTextColor)
                             .lineLimit(1)
                     }
                     // AI reply — Markdown, so the preview shows what the
                     // line cap does to it: a flattened line, or full blocks.
-                    HStack(alignment: .top, spacing: 4) {
-                        Text("$")
-                            .font(.system(size: fs, weight: .bold, design: .monospaced))
-                            .foregroundStyle(aiColor)
+                    HStack(alignment: .top, spacing: 5) {
+                        glyph(SessionGlyph.reply, color: SessionGlyph.replyColor, scale: SessionGlyph.replyScale)
                         AssistantReplyText(
                             text: Self.sampleReply,
                             fontSize: fs,
                             lineLimit: lineLimit > 0 ? lineLimit : nil
                         )
                     }
-                    // Working indicator
-                    HStack(spacing: 4) {
-                        Text("$")
-                            .font(.system(size: fs, weight: .bold, design: .monospaced))
-                            .foregroundStyle(aiColor)
-                        Text("Edit src/auth.ts")
-                            .font(.system(size: fs, design: .monospaced))
-                            .foregroundStyle(.white.opacity(0.75))
-                            .lineLimit(1)
-                    }
+                    // The running tool
+                    runningTool
                 }
-                .padding(.leading, 4)
             }
         }
-        .padding(.horizontal, 16)
+        .padding(.leading, 14)
+        .padding(.trailing, 16)
         .padding(.vertical, 12)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color(white: 0.05))
-        )
-        .animation(.easeInOut(duration: 0.25), value: fontSize)
-        .animation(.easeInOut(duration: 0.25), value: lineLimit)
-        .animation(.easeInOut(duration: 0.25), value: showDetails)
+    }
+
+    /// One row per session (Compact).
+    private var compactRow: some View {
+        HStack(spacing: 8) {
+            MascotView(source: "claude", status: .running, size: 18)
+                .frame(width: 22)
+            Text("my-project")
+                .font(.system(size: fs, weight: .bold, design: .monospaced))
+                .foregroundStyle(.white.opacity(0.92))
+                .lineLimit(1)
+            Text(status.label)
+                .font(.system(size: CompactSessionRowMetrics.statusFontSize(fs), weight: .bold, design: .monospaced))
+                .foregroundStyle(status.color)
+                .lineLimit(1)
+            runningTool
+            Spacer(minLength: 0)
+        }
+        .frame(minHeight: CompactSessionRowMetrics.rowHeight)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+    }
+
+    private var runningTool: some View {
+        HStack(spacing: 6) {
+            SessionToolChip(tool: "Edit", color: status.color, fontSize: fs)
+            Text("src/auth.ts")
+                .font(.system(size: fs, design: .monospaced))
+                .foregroundStyle(.white.opacity(0.75))
+                .lineLimit(1)
+        }
+    }
+
+    private func glyph(_ text: String, color: Color, scale: CGFloat = 1) -> some View {
+        Text(text)
+            .font(.system(size: fs, weight: .bold, design: .monospaced))
+            .foregroundStyle(color)
+            .scaleEffect(scale)
+            .frame(width: SessionGlyph.columnWidth(fs))
+            .accessibilityHidden(true)
     }
 }
 
@@ -1616,9 +1715,11 @@ private struct MascotsPage: View {
         ("QwenBot", "qwen", "Qwen Code", Color(red: 0.486, green: 0.228, blue: 0.929)),
         ("KimiBot", "kimi", "Kimi Code CLI", Color(red: 0.29, green: 0.56, blue: 1.0)),
         ("Kiro", "kiro", "Kiro", Color(red: 0.62, green: 0.45, blue: 1.0)),
+        ("MiniMax", "minimax", "MiniMax Code CLI", Color(red: 1.0, green: 0.36, blue: 0.30)),
         ("Pi", "pi", "Pi", Color(red: 0.55, green: 0.43, blue: 0.95)),
         ("Oh My Pi", "omp", "Oh My Pi", Color(red: 0.55, green: 0.43, blue: 0.95)),
         ("OpBot", "opencode", "OpenCode", Color(red: 0.55, green: 0.55, blue: 0.57)),
+        ("MiMoBot", "mimo", "MiMo Code / Xiaomi MiMo", Color(red: 1.0, green: 0.41, blue: 0.0)),
         ("ClineBot", "cline", "Cline", Color(red: 0.00, green: 0.70, blue: 0.49)),
         ("Gemini", "google-antigravity", "Google Antigravity", Color(red: 0.278, green: 0.588, blue: 0.894)),
         ("AiWorkBot", "aiwork", "AiWork", Color(red: 0.12, green: 0.72, blue: 0.28)),
@@ -2309,7 +2410,7 @@ private struct AboutPage: View {
                     Text(l10n["about_desc1"])
                         .font(.system(size: 12))
                         .foregroundStyle(.tertiary)
-                    Text(l10n["about_desc2"])
+                    Text(String(format: l10n["about_desc2"], ConfigInstaller.builtInIntegrationCount))
                         .font(.system(size: 12))
                         .foregroundStyle(.tertiary)
                 }

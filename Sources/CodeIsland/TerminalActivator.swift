@@ -76,7 +76,8 @@ struct TerminalActivator {
         "com.todesktop.230313mzl4w4u92": "Cursor",
         "com.trae.app": "Trae",
         "cn.trae.app": "Trae CN",
-        "com.qoder.ide": "Qoder",
+        "com.qoder.ide": "Qoder IDE",
+        "com.qoder.app": "Qoder",
         "com.factory.app": "Factory",
         "com.tencent.codebuddy": "CodeBuddy",
         "com.tencent.codebuddy.cn": "CodyBuddyCN",
@@ -84,6 +85,14 @@ struct TerminalActivator {
         "ai.opencode.desktop": "OpenCode",
         "com.workbuddy.workbuddy": "WorkBuddy",
         "com.alipay.dtcoder.ide": "AiWork",
+        // Xiaomi MiMo desktop, mainland and overseas editions. Like Claude
+        // Desktop, deliberately NOT in sourceToNativeAppBundleId: the `mimo`
+        // CLI is a separate product, and an open MiMo app must not steal the
+        // jump of a terminal session. The app registers `xiaomi-mimo://`, but
+        // only for share-join links — nothing opens a given session — so the
+        // jump raises the app's window.
+        "com.xiaomi.mimo.desktop": "Xiaomi MiMo",
+        "com.xiaomi.mimo.desktop-ai": "Xiaomi MiMo AI",
         // Claude Code Desktop (#211). Deliberately NOT in sourceToNativeAppBundleId:
         // most "claude" sessions are terminal CLI runs, and that fallback would
         // steal their click-to-jump whenever the desktop app happens to be open.
@@ -117,6 +126,14 @@ struct TerminalActivator {
         if session.source == "panda",
            session.transcriptPath?.contains("/.panda/desktop/") == true {
             activateByBundleId("com.pandacode.desktop")
+            return
+        }
+        // A Claude Code session run from Claude Desktop's Code tab: open that
+        // exact session. Raising the app alone left the user on whichever
+        // session it last showed.
+        if let hostId = session.claudeDesktopSessionId,
+           let url = ClaudeDesktopCodeSession.deepLinkURL(hostSessionId: hostId) {
+            AppState.openInClaudeDesktop(url)
             return
         }
         // A UI harness (T3 Code) owns the conversation: the terminal/multiplexer
