@@ -49,7 +49,7 @@ public enum PandaTokenProvider {
     public static func fetchToken() throws -> String {
         let password = try keychainPassword()
         let encrypted = try readEncryptedValue("auth.accessToken")
-        return try decrypt(encryptedValue: encrypted, keyringPassword: password)
+        return try decrypt(encryptedValue: encrypted, keyringPassword: password, keyName: "auth.accessToken")
     }
 
     /// The model a Panda session in `cwd` last used. Panda stores per-workspace
@@ -111,10 +111,11 @@ public enum PandaTokenProvider {
     public static func readCustomModelKey(modelID: String) -> String? {
         guard FileManager.default.fileExists(atPath: stateDBPath) else { return nil }
         guard let password = try? keychainPassword() else { return nil }
-        guard let encrypted = try? readEncryptedValue("panda.model.custom.apiKey.\(modelID)") else {
+        let keyName = "panda.model.custom.apiKey.\(modelID)"
+        guard let encrypted = try? readEncryptedValue(keyName) else {
             return nil
         }
-        return try? decrypt(encryptedValue: encrypted, keyringPassword: password)
+        return try? decrypt(encryptedValue: encrypted, keyringPassword: password, keyName: keyName)
     }
 
     private static func openStateDB() -> OpaquePointer? {
@@ -166,12 +167,28 @@ public enum PandaTokenProvider {
         return String(cString: cString)
     }
 
+    /// Test/diagnostic entry: dispatches on the framing prefix exactly like
+    /// the internal decrypt path.
+    public static func decryptForTesting(encryptedValue: String, keyringPassword: String, keyName: String) throws -> String {
+        try decrypt(encryptedValue: encryptedValue, keyringPassword: keyringPassword, keyName: keyName)
+    }
+
     // MARK: - Cipher
 
-    private static func decrypt(encryptedValue: String, keyringPassword: String) throws -> String {
-        guard encryptedValue.hasPrefix("v12"), encryptedValue.count > 3 else {
-            throw TokenError.cryptoFailure
+    /// Dispatches on the framing prefix: v12 (Panda ≤ the 2026-09 update,
+    /// AES-128-CBC) and v13 (the current format, AES-256-GCM).
+    private static func decrypt(encryptedValue: String, keyringPassword: String, keyName: String) throws -> String {
+        if encryptedValue.hasPrefix("v12"), encryptedValue.count > 3 {
+            return try decryptV12(encryptedValue: encryptedValue, keyringPassword: keyringPassword)
         }
+        if encryptedValue.hasPrefix("v13"), encryptedValue.count > 3 {
+            return try decryptV13(encryptedValue: encryptedValue, keyringPassword: keyringPassword, keyName: keyName)
+        }
+        throw TokenError.cryptoFailure
+    }
+
+    /// Legacy v12: scrypt(pw, "saltysalt", 16) + AES-128-CBC, fixed space IV.
+    private static func decryptV12(encryptedValue: String, keyringPassword: String) throws -> String {
         guard let ciphertext = Data(base64Encoded: String(encryptedValue.dropFirst(3))) else {
             throw TokenError.cryptoFailure
         }
@@ -201,6 +218,42 @@ public enum PandaTokenProvider {
             throw TokenError.cryptoFailure
         }
         return token
+    }
+
+    /// v13 (Panda Desktop 2026-09+): AES-256-GCM with the key chain password
+    /// unchanged but a version-scoped salt, and the secret key name bound as
+    /// AAD so values cannot be replayed across rows:
+    ///   key  = scrypt(keychainPassword, "panda-safe-storage:v13", 32,
+    ///                 { N:16384, r:8, p:1, maxmem:64MB })
+    ///   body = base64(nonce(12) ‖ ciphertext ‖ tag(16))
+    ///   aad  = "panda.secret\0v13\0" ‖ keyName
+    private static func decryptV13(encryptedValue: String, keyringPassword: String, keyName: String) throws -> String {
+        guard let body = Data(base64Encoded: String(encryptedValue.dropFirst(3))),
+              body.count > 12 + 16 else {
+            throw TokenError.cryptoFailure
+        }
+        let key = try Scrypt.derive(
+            password: Array(keyringPassword.utf8),
+            salt: Array("panda-safe-storage:v13".utf8),
+            N: 16384, r: 8, p: 1,
+            dkLen: 32
+        )
+        let aad = Data("panda.secret\0v13\0".utf8) + Data(keyName.utf8)
+        do {
+            // SealedBox(combined:) = nonce(12) ‖ ciphertext ‖ tag(16) — exactly
+            // the wire layout Panda writes.
+            let sealed = try AES.GCM.SealedBox(combined: body)
+            let plain = try AES.GCM.open(sealed, using: SymmetricKey(data: Data(key)), authenticating: aad)
+            guard let token = String(data: plain, encoding: .utf8), !token.isEmpty else {
+                throw TokenError.cryptoFailure
+            }
+            return token
+        } catch is TokenError {
+            throw TokenError.cryptoFailure
+        } catch {
+            // GCM authentication failure lands here (wrong password / tampered row).
+            throw TokenError.cryptoFailure
+        }
     }
 }
 
