@@ -42,7 +42,7 @@ public enum PandaTokenProvider {
     /// Fast, non-throwing probe: auto-retrieval is worth attempting when the
     /// Panda state db exists (Keychain consent is asked lazily on first read).
     public static var isAutoFetchPlausible: Bool {
-        FileManager.default.fileExists(atPath: stateDBPath)
+        return FileManager.default.fileExists(atPath: stateDBPath)
     }
 
     /// Full automatic retrieval. Blocking I/O — call off the main actor.
