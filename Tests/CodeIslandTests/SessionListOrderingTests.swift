@@ -269,11 +269,10 @@ final class SessionListOrderingTests: XCTestCase {
     }
 
     func testCompactRowsScrollByHeightOnly() {
-        // The task box is a fixed slot of "max visible sessions" cards plus
-        // two group headers: with the two-card default, four one-line rows
-        // fit it, eight don't — whatever the density.
-        let slot = PanelHeightMetrics.desiredHeight(maxVisibleSessions: 2)
-            - 60 - PanelHeightMetrics.expandedChromeReserve
+        // The task box is a task-count-sized slot: with two cards' worth of
+        // points, four one-line rows fit it, eight don't — whatever the
+        // density.
+        let slot = PanelHeightMetrics.taskSlotHeight(taskCount: 8, maxVisibleSessions: 2)
         let fourCompactRows: CGFloat = 4 * (CompactSessionRowMetrics.rowHeight + CompactSessionRowMetrics.spacing)
         XCTAssertLessThan(fourCompactRows, slot)
         let eightCompactRows: CGFloat = 8 * (CompactSessionRowMetrics.rowHeight + CompactSessionRowMetrics.spacing)

@@ -27,16 +27,26 @@ final class PanelFitLayoutTests: XCTestCase {
     // MARK: - Session list
 
     func testListScrollsByHeightNotOnlyBySessionCount() {
-        // The task box is a fixed slot of "max visible sessions" cards plus
-        // two group headers — not a count-triggered switch: four tall cards
-        // scroll exactly like eight short ones once they outgrow the slot.
-        // desiredHeight = taskSlot + 60 + chromeReserve.
-        let slot = PanelHeightMetrics.desiredHeight(maxVisibleSessions: 2)
-            - 60 - PanelHeightMetrics.expandedChromeReserve
+        // The task box is a fixed slot sized by task count — not a
+        // count-triggered switch: four tall cards scroll exactly like eight
+        // short ones once they outgrow the two-card slot.
+        // slot = cards*90 + headers*24 + 8 (a header budgeted per card).
+        let slot = PanelHeightMetrics.taskSlotHeight(taskCount: 4, maxVisibleSessions: 2)
         XCTAssertEqual(slot, 236, accuracy: 1)
         XCTAssertGreaterThan(4 * 150, slot, "four tall cards must overflow the box")
         XCTAssertGreaterThan(4 * 90, slot, "four normal cards overflow the two-card slot too")
         XCTAssertLessThan(90, slot, "a single card fits without scrolling")
+        // Two tasks and eight tasks reserve the same slot; one reserves half.
+        XCTAssertEqual(PanelHeightMetrics.taskSlotHeight(taskCount: 8, maxVisibleSessions: 2), slot, accuracy: 1)
+        XCTAssertEqual(PanelHeightMetrics.taskSlotHeight(taskCount: 1, maxVisibleSessions: 2), 122, accuracy: 1)
+        // No tasks, no slot at all.
+        XCTAssertEqual(PanelHeightMetrics.taskSlotHeight(taskCount: 0, maxVisibleSessions: 2), 0, accuracy: 1)
+        // The setting widens the slot; the task count grows it up to the cap.
+        XCTAssertEqual(PanelHeightMetrics.taskSlotHeight(taskCount: 3, maxVisibleSessions: 5), 350, accuracy: 1)
+        XCTAssertEqual(PanelHeightMetrics.taskSlotHeight(taskCount: 5, maxVisibleSessions: 5), 578, accuracy: 1)
+        XCTAssertEqual(PanelHeightMetrics.taskSlotHeight(taskCount: 8, maxVisibleSessions: 5), 578, accuracy: 1)
+        // And the window grows with the setting (full-slot budget).
+        XCTAssertEqual(PanelHeightMetrics.desiredHeight(maxVisibleSessions: 5), 948, accuracy: 1)
     }
 
     func testFewTallSessionsStayInsideTheWindow() throws {

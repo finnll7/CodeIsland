@@ -105,8 +105,10 @@ final class MarkdownReplyViewTests: XCTestCase {
 
     @MainActor
     func testCompletionReplyFallsBackToAnEstimateUntilTheCardIsMeasured() {
-        let estimate = 510 - CompletionReplyMetrics.estimatedChromeHeight - CompletionReplyMetrics.bottomMargin
-        // Nothing measured yet — the window PanelWindowController asks for.
+        // The window PanelWindowController asks for at the default setting,
+        // minus the chrome estimate — nothing measured yet.
+        let estimate = PanelHeightMetrics.desiredHeight(maxVisibleSessions: SettingsDefaults.maxVisibleSessions)
+            - CompletionReplyMetrics.estimatedChromeHeight - CompletionReplyMetrics.bottomMargin
         XCTAssertEqual(replyMaxHeight(window: 0, chrome: nil), estimate)
         // The collapsed bar or the session list says nothing about a reply's room.
         let space = CompletionCardSpace()
@@ -177,9 +179,11 @@ final class MarkdownReplyViewTests: XCTestCase {
     }
 
     func testPanelHeightMatchesTheSessionListBudget() {
-        XCTAssertEqual(PanelHeightMetrics.desiredHeight(maxVisibleSessions: 5), 510)
-        XCTAssertEqual(PanelHeightMetrics.desiredHeight(maxVisibleSessions: 3), 330)
-        XCTAssertEqual(PanelHeightMetrics.desiredHeight(maxVisibleSessions: 0), 300, "never below the 300pt floor")
+        // desiredHeight = full task slot (cards*90 + headers*24 + 8) + 60
+        // + expandedChromeReserve (310), floored at 300.
+        XCTAssertEqual(PanelHeightMetrics.desiredHeight(maxVisibleSessions: 5), 948)
+        XCTAssertEqual(PanelHeightMetrics.desiredHeight(maxVisibleSessions: 3), 720)
+        XCTAssertEqual(PanelHeightMetrics.desiredHeight(maxVisibleSessions: 0), 370, "no slot, chrome only")
     }
 
     func testHugeCodeIsCutToBoundLayoutCost() {

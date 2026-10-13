@@ -213,7 +213,12 @@ struct SettingsDefaults {
     static let autoExpandOnQuestion = true
     static let sessionTimeout = 30
 
-    static let maxPanelHeight = 560
+    /// Cap on the completion card's reply area (no Settings UI — the
+    /// programmatic backstop for auto-opening cards). Must sit above the
+    /// default dashboard window (desiredHeight at the default setting,
+    /// 606pt) or the reply stops short of the window it fills
+    /// (CompletionCardLayoutTests reads the gap from pixels).
+    static let maxPanelHeight = 640
     /// Default two cards in the task slot — enough to see what's running
     /// and what's queued next without the panel eating half the screen; the
     /// rest scrolls inside the slot.

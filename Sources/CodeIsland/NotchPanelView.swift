@@ -2897,10 +2897,8 @@ private struct SessionListView: View {
     @AppStorage(SettingsKey.contentFontSize) private var contentFontSize = SettingsDefaults.contentFontSize
     @AppStorage(SettingsKey.showProjectName) private var showProjectName = SettingsDefaults.showProjectName
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    /// Natural height of the task cards, measured inside the scroll view.
-    @State private var contentHeight: CGFloat = 0
     /// Measured heights of the pinned sections — header cards above the
-    /// list, usage rows below — so the scroll box gets exactly the room
+    /// list, usage rows below — so the task slot gets exactly the room
     /// they leave inside `availableHeight`.
     @State private var pinnedTopHeight: CGFloat = 0
     @State private var pinnedBottomHeight: CGFloat = 0
@@ -3066,10 +3064,6 @@ private struct SessionListView: View {
             }
         }
         .padding(.vertical, 4)
-        // Natural height of the cards, laid out inside the scroll view where
-        // the height is unconstrained. Only the no-sessions panel sizes its
-        // box to this — with sessions the box is a fixed slot.
-        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
         // Cards needing you sort to the top — but not while the pointer is on
         // the list, where a card moving would put another under the cursor
         // just as it clicks. The list re-sorts once the pointer leaves. The
@@ -3124,20 +3118,21 @@ private struct SessionListView: View {
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { pinnedTopHeight = $0 }
 
-            // Task cards — the dashboard's fixed task slot. With sessions
-            // running, the box is always "max visible sessions" cards plus
-            // two group headers tall: fewer tasks leave the spare room empty
-            // (a stable dashboard, nothing moves as tasks come and go), more
-            // scroll inside the box instead of pushing the pinned rows past
-            // the window's bottom edge (the invisible Panda usage bar). Only
-            // a window clamped by the screen — or no sessions at all, where
-            // there is no task section to reserve — sizes the box down. The
-            // completion card (availableHeight == nil) hugs naturally.
-            if availableHeight != nil {
+            // Task cards — the dashboard's task slot, sized by task count:
+            // no tasks, no slot at all (the header cards meet the footer
+            // directly); one task, one group header + one card; two or more,
+            // two headers + two cards (capped by the "max visible sessions"
+            // setting). Content beyond the slot scrolls inside it (mouse
+            // wheel / trackpad) instead of pushing the pinned rows past the
+            // window's bottom edge (the invisible Panda usage bar). A window
+            // clamped by the screen sizes the box down. The completion card
+            // (availableHeight == nil) hugs naturally.
+            if availableHeight != nil, !appState.sessions.isEmpty {
                 let roomLeft = max(0, availableHeight! - pinnedTopHeight - pinnedBottomHeight)
-                let slotHeight = appState.sessions.isEmpty
-                    ? contentHeight
-                    : PanelHeightMetrics.taskSlotHeight(maxVisibleSessions: maxVisibleSessions)
+                let slotHeight = PanelHeightMetrics.taskSlotHeight(
+                    taskCount: appState.sessions.count,
+                    maxVisibleSessions: maxVisibleSessions
+                )
                 ScrollView(.vertical) {
                     content
                 }
@@ -3146,7 +3141,7 @@ private struct SessionListView: View {
                 // below (mouse wheel / trackpad scrolls it).
                 .scrollIndicators(.visible)
                 .frame(height: max(0, min(slotHeight, roomLeft)))
-            } else {
+            } else if onlySessionId != nil {
                 content
             }
 

@@ -123,27 +123,34 @@ enum PanelHeightMetrics {
     /// clipped away (the invisible Panda usage bar).
     static let expandedChromeReserve: CGFloat = 310
 
-    /// Height of the fixed task slot: the "max visible sessions" cards,
-    /// plus room for two group headers ("Running (1)" / "Idle (2)" — the
-    /// usual grouping shape) and the slot's vertical padding. Fewer tasks
-    /// leave the spare room empty; more scroll inside the slot.
-    static func taskSlotHeight(maxVisibleSessions: Int) -> CGFloat {
-        let cards = CGFloat(max(1, maxVisibleSessions))
-        return cards * heightPerSession + 2 * TaskSlotMetrics.groupHeaderBudget + TaskSlotMetrics.slotPadding
+    /// Height of the task slot by task count: no tasks, no slot at all;
+    /// one task, one group header + one card; two or more (up to the
+    /// "max visible sessions" setting), two headers + two cards. Content
+    /// beyond that scrolls inside the slot.
+    static func taskSlotHeight(taskCount: Int, maxVisibleSessions: Int) -> CGFloat {
+        guard taskCount > 0 else { return 0 }
+        let cards = CGFloat(min(max(taskCount, 1), max(1, maxVisibleSessions)))
+        // One group header per card budgeted: the usual grouping is
+        // "running / idle", but a group-per-CLI list or any other shape
+        // never exceeds one header per card.
+        let headers = cards
+        return cards * heightPerSession + headers * TaskSlotMetrics.groupHeaderBudget + TaskSlotMetrics.slotPadding
     }
 
     /// Window height the panel asks for before clamping to the screen: the
-    /// fixed task slot plus the notch bar's share, plus the expanded chrome
-    /// reserve.
+    /// task slot at its full "max visible sessions" size (the most the slot
+    /// ever grows; the live slot only shrinks below this with fewer tasks),
+    /// plus the notch bar's share, plus the expanded chrome reserve.
     static func desiredHeight(maxVisibleSessions: Int) -> CGFloat {
-        max(300, taskSlotHeight(maxVisibleSessions: maxVisibleSessions) + 60 + expandedChromeReserve)
+        let slot = taskSlotHeight(taskCount: maxVisibleSessions, maxVisibleSessions: maxVisibleSessions)
+        return max(300, slot + 60 + expandedChromeReserve)
     }
 }
 
 /// Sizing constants of the dashboard's fixed task section.
 enum TaskSlotMetrics {
     /// A group header ("Running (2)") with its padding measures ~21pt;
-    /// budget slightly more so two headers always fit whole.
+    /// budget slightly more so a header always fits whole.
     static let groupHeaderBudget: CGFloat = 24
     /// The task list's .padding(.vertical, 4).
     static let slotPadding: CGFloat = 8
