@@ -361,6 +361,33 @@ final class AppState {
     /// Things3 to-dos & plans (AppleScript) — replaces the calendar column of
     /// the header card when enabled; gated by showThings3.
     let things = Things3Monitor()
+    /// Per-workspace model labels for Panda sessions whose hook events carry
+    /// no model (read from Panda's own state.db, cached per cwd).
+    private var pandaWorkspaceModelCache: [String: (label: String?, at: Date)] = [:]
+
+    /// The model a Panda session in `cwd` last used, from Panda's own
+    /// `modelRecent/...` history — a fallback for sessions whose hook events
+    /// never name a model. Cached for 2 minutes; external ("custom:<uuid>")
+    /// ids are skipped (their balance already shows on the stats footer).
+    func pandaWorkspaceModelLabel(cwd: String?, source: String) -> String? {
+        guard source == "panda", let cwd, !cwd.isEmpty else { return nil }
+        if let cached = pandaWorkspaceModelCache[cwd], Date().timeIntervalSince(cached.at) < 120 {
+            return cached.label
+        }
+        let label: String? = {
+            guard let json = PandaTokenProvider.readWorkspaceModelId(cwd: cwd),
+                  let data = json.data(using: .utf8),
+                  let entries = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+                  let first = entries.first else { return nil }
+            let modelId = first["modelId"] as? String
+            let modelName = first["modelName"] as? String
+            let raw = (modelName?.isEmpty == false ? modelName : modelId) ?? ""
+            guard !raw.isEmpty, !raw.hasPrefix("custom:") else { return nil }
+            return ModelLabel.label(model: raw, effort: nil)
+        }()
+        pandaWorkspaceModelCache[cwd] = (label, Date())
+        return label
+    }
     /// Panda's selected model — when an external ("custom") model is active,
     /// its provider balance replaces the Panda plan card.
     let externalModel = ExternalModelMonitor()

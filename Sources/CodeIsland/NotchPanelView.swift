@@ -4965,6 +4965,16 @@ private struct SessionCard: View {
                     SessionTag("@\(remote)", color: Color(red: 0.45, green: 0.72, blue: 1.0), maxWidth: 110)
                         .help("@\(remote)")
                 }
+                // Current model for the task — left of the context usage, as
+                // tasks can switch models mid-flight. A Panda session whose
+                // hook events carry no model falls back to the workspace's
+                // most recent model from Panda's own state db.
+                if showModelLabel, let modelLabel = session.modelLabel
+                    ?? appState.pandaWorkspaceModelLabel(cwd: session.cwd, source: session.source) {
+                    SessionTag(modelLabel, color: SessionMetadataStyle.modelTagColor, maxWidth: 120)
+                        .lineLimit(1)
+                        .help(session.model ?? modelLabel)
+                }
                 // Panda per-task context usage — each card shows its
                 // own conversation size (Panda sessionIds ARE the
                 // transcript file stems the scanner keys on).
@@ -4982,10 +4992,6 @@ private struct SessionCard: View {
                 }
                 if session.isYoloMode == true {
                     SessionTag("YOLO", color: Color(red: 1.0, green: 0.35, blue: 0.35))
-                }
-                if showModelLabel, let modelLabel = session.modelLabel {
-                    SessionTag(modelLabel, color: SessionMetadataStyle.modelTagColor, maxWidth: 120)
-                        .help(session.model ?? modelLabel)
                 }
                 SessionTag(timeAgo(session.startTime))
                 TerminalBadge(session: session)

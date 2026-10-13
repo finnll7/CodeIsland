@@ -237,7 +237,7 @@ struct SettingsDefaults {
     static let autoMuteWhenAway = true
     static let showGitBranch = true
     static let showSessionRecap = true
-    static let showModelLabel = false
+    static let showModelLabel = true
     static let showUsageStats = true
     static let showPandaUsage = true
     static let showClaudeQuota = false
