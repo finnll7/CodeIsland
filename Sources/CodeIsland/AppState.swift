@@ -675,9 +675,54 @@ final class AppState {
         return !livesWithItsProcess && idleMinutes >= defaultStaleIdleMinutes
     }
 
+    /// How long a card may claim to be working after its last hook event of
+    /// any kind before that claim is stale. A finished turn's Stop sets the
+    /// card idle, but events that are not a new turn can revive it after the
+    /// fact: an idle-time auto-compact's PreCompact, a background-task
+    /// completion Notification, an out-of-order tool hook racing the Stop.
+    /// For a daemon-backed host (Panda desktop, gateway chats) the process
+    /// never exits, so nothing else corrects the card. Ten minutes clears
+    /// any real turn — compactions and long single-tool builds included.
+    nonisolated static let stuckActiveSettleSeconds: TimeInterval = 600
+
+    /// Whether an active-looking card has gone quiet long enough to be
+    /// settled back to idle. Waiting states are exempt: they are actionable
+    /// and keep their own timeouts.
+    nonisolated static func isStuckActiveSession(
+        status: AgentStatus,
+        lastActivity: Date,
+        now: Date = Date(),
+        timeout: TimeInterval = stuckActiveSettleSeconds
+    ) -> Bool {
+        guard status == .running || status == .processing else { return false }
+        return lastActivity.addingTimeInterval(timeout) <= now
+    }
+
     nonisolated static func isDaemonBackedSource(_ source: String?) -> Bool {
         guard let normalized = SessionSnapshot.normalizedSupportedSource(source) else { return false }
         return daemonBackedSources.contains(normalized)
+    }
+
+    /// Settle cards that have claimed to work long past their last hook event
+    /// (see ``isStuckActiveSession``): drop the tool chrome and return to
+    /// idle. No completion is enqueued — the turn's own Stop announced it
+    /// long ago, and re-announcing now would be noise. Remote cards are
+    /// skipped: their turns run on another host and can legitimately stay
+    /// silent for long stretches (#121). Cowork cards settle on their own
+    /// clock.
+    func settleStuckActiveSessions(now: Date = Date()) {
+        for (key, session) in sessions
+            where !session.isRemote
+            && !key.hasPrefix(Self.coworkSessionPrefix)
+            && Self.isStuckActiveSession(
+                status: session.status,
+                lastActivity: session.lastActivity,
+                now: now
+            ) {
+            sessions[key]?.status = .idle
+            sessions[key]?.currentTool = nil
+            sessions[key]?.toolDescription = nil
+        }
     }
 
     private func cleanupIdleSessions() {
@@ -786,6 +831,13 @@ final class AppState {
                 sessions[key]?.status = .idle
             }
         }
+
+        // 2c. Stuck-active backstop: a card still claiming to work long past
+        //     its last hook event of any kind. Covers exactly what 2/2b skip
+        //     — a monitored session, a status pinned by tool chrome
+        //     (PreCompact's "Compacting context…", a Notification message),
+        //     or plain .running, which had no watchdog at all.
+        settleStuckActiveSessions()
 
         // 3. Verify PID liveness for sessions without monitors but with a known PID.
         //    If the process died: idle sessions are removed directly (no grace needed),
