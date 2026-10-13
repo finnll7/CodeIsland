@@ -1361,6 +1361,7 @@ private struct AppearancePage: View {
                         .foregroundStyle(.secondary)
                 }
                 Picker(selection: $maxVisibleSessions) {
+                    Text("2").tag(2)
                     Text("3").tag(3)
                     Text("5").tag(5)
                     Text("8").tag(8)

@@ -269,15 +269,17 @@ final class SessionListOrderingTests: XCTestCase {
     }
 
     func testCompactRowsScrollByHeightOnly() {
-        // The task box is a fixed slot of maxVisibleSessions cards' worth of
-        // points: eight one-line rows fit it, eight full cards don't —
-        // whatever the density.
-        let slot = PanelHeightMetrics.desiredHeight(maxVisibleSessions: 5)
+        // The task box is a fixed slot of "max visible sessions" cards plus
+        // two group headers: with the two-card default, four one-line rows
+        // fit it, eight don't — whatever the density.
+        let slot = PanelHeightMetrics.desiredHeight(maxVisibleSessions: 2)
             - 60 - PanelHeightMetrics.expandedChromeReserve
+        let fourCompactRows: CGFloat = 4 * (CompactSessionRowMetrics.rowHeight + CompactSessionRowMetrics.spacing)
+        XCTAssertLessThan(fourCompactRows, slot)
         let eightCompactRows: CGFloat = 8 * (CompactSessionRowMetrics.rowHeight + CompactSessionRowMetrics.spacing)
-        XCTAssertLessThan(eightCompactRows, slot)
-        let eightComfortableCards: CGFloat = 8 * PanelHeightMetrics.heightPerSession
-        XCTAssertGreaterThan(eightComfortableCards, slot)
+        XCTAssertGreaterThan(eightCompactRows, slot)
+        let twoComfortableCards: CGFloat = 2 * PanelHeightMetrics.heightPerSession
+        XCTAssertLessThan(twoComfortableCards, slot)
     }
 
     func testCompactColumnsFitTheirWords() {
@@ -343,13 +345,10 @@ final class CompactSessionListLayoutTests: XCTestCase {
     func testEightCompactSessionsFitWithoutScrolling() throws {
         let four = try panelHeight(sessions: 4)
         let eight = try panelHeight(sessions: 8)
-        // The task section is a fixed slot (maxVisibleSessions cards tall):
-        // eight one-line rows sit inside the same box four did, so the panel
-        // is exactly as tall either way — and still inside the window.
+        // The task section is a fixed slot (default two cards plus group
+        // headers): eight one-line rows sit in the same box four did, so the
+        // panel is exactly as tall either way — and still inside the window.
         XCTAssertEqual(eight, four, accuracy: 1.5, "the task box should not grow with the row count")
-        let box = CGFloat(SettingsDefaults.maxVisibleSessions) * PanelHeightMetrics.heightPerSession
-        XCTAssertLessThan(8 * (CompactSessionRowMetrics.rowHeight + CompactSessionRowMetrics.spacing), box,
-                         "eight one-line rows must fit the box without scrolling")
         XCTAssertLessThan(eight, PanelHeightMetrics.desiredHeight(maxVisibleSessions: SettingsDefaults.maxVisibleSessions))
     }
 

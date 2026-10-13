@@ -214,7 +214,10 @@ struct SettingsDefaults {
     static let sessionTimeout = 30
 
     static let maxPanelHeight = 560
-    static let maxVisibleSessions = 5
+    /// Default two cards in the task slot — enough to see what's running
+    /// and what's queued next without the panel eating half the screen; the
+    /// rest scrolls inside the slot.
+    static let maxVisibleSessions = 2
     static let sessionListDensity = SessionListDensity.comfortable.rawValue
     static let contentFontSize = 11
     static let aiMessageLines = 1

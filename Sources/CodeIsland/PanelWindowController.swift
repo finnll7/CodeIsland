@@ -111,8 +111,8 @@ struct PanelScreenHopMotion {
 }
 
 enum PanelHeightMetrics {
-    /// The window budgets this much per visible session
-    /// (SessionListMetrics.heightPerSession's twin — keep them in sync).
+    /// The window budgets this much per visible session card (the task
+    /// slot's per-card unit — keep in sync with TaskSlotMetrics).
     static let heightPerSession: CGFloat = 90
 
     /// Room the expanded dashboard chrome needs outside the fixed task
@@ -123,13 +123,30 @@ enum PanelHeightMetrics {
     /// clipped away (the invisible Panda usage bar).
     static let expandedChromeReserve: CGFloat = 310
 
-    /// Window height the panel asks for before clamping to the screen: room
-    /// for `maxVisibleSessions` cards plus the notch bar, plus the expanded
-    /// chrome reserve.
-    static func desiredHeight(maxVisibleSessions: Int) -> CGFloat {
-        let sessions = CGFloat(max(2, maxVisibleSessions))
-        return max(300, sessions * heightPerSession + 60 + expandedChromeReserve)
+    /// Height of the fixed task slot: the "max visible sessions" cards,
+    /// plus room for two group headers ("Running (1)" / "Idle (2)" — the
+    /// usual grouping shape) and the slot's vertical padding. Fewer tasks
+    /// leave the spare room empty; more scroll inside the slot.
+    static func taskSlotHeight(maxVisibleSessions: Int) -> CGFloat {
+        let cards = CGFloat(max(1, maxVisibleSessions))
+        return cards * heightPerSession + 2 * TaskSlotMetrics.groupHeaderBudget + TaskSlotMetrics.slotPadding
     }
+
+    /// Window height the panel asks for before clamping to the screen: the
+    /// fixed task slot plus the notch bar's share, plus the expanded chrome
+    /// reserve.
+    static func desiredHeight(maxVisibleSessions: Int) -> CGFloat {
+        max(300, taskSlotHeight(maxVisibleSessions: maxVisibleSessions) + 60 + expandedChromeReserve)
+    }
+}
+
+/// Sizing constants of the dashboard's fixed task section.
+enum TaskSlotMetrics {
+    /// A group header ("Running (2)") with its padding measures ~21pt;
+    /// budget slightly more so two headers always fit whole.
+    static let groupHeaderBudget: CGFloat = 24
+    /// The task list's .padding(.vertical, 4).
+    static let slotPadding: CGFloat = 8
 }
 
 @MainActor

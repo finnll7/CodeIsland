@@ -27,15 +27,16 @@ final class PanelFitLayoutTests: XCTestCase {
     // MARK: - Session list
 
     func testListScrollsByHeightNotOnlyBySessionCount() {
-        // The task box is a fixed slot of exactly the sessions*90 budget,
-        // whatever the session count: four tall cards scroll exactly like
-        // eight short ones once they outgrow the slot.
-        // desiredHeight = sessions*90 + 60 + chromeReserve.
-        let slot = PanelHeightMetrics.desiredHeight(maxVisibleSessions: 5)
+        // The task box is a fixed slot of "max visible sessions" cards plus
+        // two group headers — not a count-triggered switch: four tall cards
+        // scroll exactly like eight short ones once they outgrow the slot.
+        // desiredHeight = taskSlot + 60 + chromeReserve.
+        let slot = PanelHeightMetrics.desiredHeight(maxVisibleSessions: 2)
             - 60 - PanelHeightMetrics.expandedChromeReserve
-        XCTAssertEqual(slot, 450, accuracy: 1)
+        XCTAssertEqual(slot, 236, accuracy: 1)
         XCTAssertGreaterThan(4 * 150, slot, "four tall cards must overflow the box")
-        XCTAssertLessThan(4 * 90, slot, "four normal cards fit without scrolling")
+        XCTAssertGreaterThan(4 * 90, slot, "four normal cards overflow the two-card slot too")
+        XCTAssertLessThan(90, slot, "a single card fits without scrolling")
     }
 
     func testFewTallSessionsStayInsideTheWindow() throws {

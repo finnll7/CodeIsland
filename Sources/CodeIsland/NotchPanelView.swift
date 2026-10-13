@@ -3125,23 +3125,26 @@ private struct SessionListView: View {
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { pinnedTopHeight = $0 }
 
             // Task cards — the dashboard's fixed task slot. With sessions
-            // running, the box is always maxVisibleSessions cards tall:
-            // fewer tasks leave the spare room empty (a stable dashboard,
-            // nothing moves as tasks come and go), more scroll inside the
-            // box instead of pushing the pinned rows past the window's
-            // bottom edge (the invisible Panda usage bar). Only a window
-            // clamped by the screen — or no sessions at all, where there is
-            // no task section to reserve — sizes the box down. The
+            // running, the box is always "max visible sessions" cards plus
+            // two group headers tall: fewer tasks leave the spare room empty
+            // (a stable dashboard, nothing moves as tasks come and go), more
+            // scroll inside the box instead of pushing the pinned rows past
+            // the window's bottom edge (the invisible Panda usage bar). Only
+            // a window clamped by the screen — or no sessions at all, where
+            // there is no task section to reserve — sizes the box down. The
             // completion card (availableHeight == nil) hugs naturally.
             if availableHeight != nil {
                 let roomLeft = max(0, availableHeight! - pinnedTopHeight - pinnedBottomHeight)
                 let slotHeight = appState.sessions.isEmpty
                     ? contentHeight
-                    : CGFloat(max(1, maxVisibleSessions)) * PanelHeightMetrics.heightPerSession
+                    : PanelHeightMetrics.taskSlotHeight(maxVisibleSessions: maxVisibleSessions)
                 ScrollView(.vertical) {
                     content
                 }
-                .scrollIndicators(.hidden)
+                // The scrollbar stays visible: the slot looks like a fixed
+                // panel of cards, and the scroller is what says there is more
+                // below (mouse wheel / trackpad scrolls it).
+                .scrollIndicators(.visible)
                 .frame(height: max(0, min(slotHeight, roomLeft)))
             } else {
                 content
