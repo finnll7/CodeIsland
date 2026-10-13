@@ -3053,6 +3053,33 @@ private struct SessionListView: View {
                     }
                 }
             }
+
+            // Usage / quota rows live INSIDE the scroll content so a long list
+            // can never push them out of the window — scrolling to the bottom
+            // always reaches them (the Panda stats row was unreachable once
+            // enough concurrent tasks filled the list).
+            if onlySessionId == nil {
+                SessionListFooter(appState: appState, showUsageStats: showUsageStats, showClaudeQuota: showClaudeQuota)
+            }
+            // Panda stats — one line, split left/right: weekly usage on the
+            // left, plan balance (or the external model's balance when a
+            // "custom" model is selected in Panda) on the right. Kept separate
+            // from the upstream SessionListFooter, which owns the Claude rows.
+            let pandaStatsVisible = (showPandaUsage && appState.pandaUsage != nil
+                && !(appState.pandaUsage?.thisWeek.isEmpty ?? true))
+                || (showPandaQuota && (appState.pandaQuota.snapshot != nil
+                    || appState.pandaQuota.lastError != nil
+                    || !appState.pandaQuota.isConfigured))
+                || appState.externalModel.isLive
+            if pandaStatsVisible, onlySessionId == nil {
+                PandaStatsFooterLine(
+                    usage: appState.pandaUsage,
+                    quota: appState.pandaQuota,
+                    external: appState.externalModel.externalModel,
+                    showUsage: showPandaUsage,
+                    showQuota: showPandaQuota
+                )
+            }
         }
         .padding(.vertical, 4)
         // The same in both branches: inside the scroll view the content still
@@ -3119,31 +3146,6 @@ private struct SessionListView: View {
                 )
             } else {
                 content
-            }
-
-            // Full session list only — the completion card stays focused on
-            // the finished session.
-            if onlySessionId == nil {
-                SessionListFooter(appState: appState, showUsageStats: showUsageStats, showClaudeQuota: showClaudeQuota)
-            }
-            // Panda stats — one line, split left/right: weekly usage on the
-            // left, plan balance (or the external model's balance when a
-            // "custom" model is selected in Panda) on the right. Kept outside
-            // the upstream SessionListFooter, which owns the Claude-side rows.
-            let pandaStatsVisible = (showPandaUsage && appState.pandaUsage != nil
-                && !(appState.pandaUsage?.thisWeek.isEmpty ?? true))
-                || (showPandaQuota && (appState.pandaQuota.snapshot != nil
-                    || appState.pandaQuota.lastError != nil
-                    || !appState.pandaQuota.isConfigured))
-                || appState.externalModel.isLive
-            if pandaStatsVisible, onlySessionId == nil {
-                PandaStatsFooterLine(
-                    usage: appState.pandaUsage,
-                    quota: appState.pandaQuota,
-                    external: appState.externalModel.externalModel,
-                    showUsage: showPandaUsage,
-                    showQuota: showPandaQuota
-                )
             }
         }
     }
