@@ -4510,35 +4510,17 @@ private struct SessionIdentityLine: View {
     }
 
     private func line(showsShortId: Bool) -> some View {
-        // Identity format: "#<session title>@~/<workspace path>" — the title
-        // leads and the workspace follows (e.g. "#CodeIsland@~/project/CodeIsland").
-        // With "Show project name" off the path is dropped (privacy), and a
-        // session without a title falls back to the agent's name.
-        let titleHeadline = session.headline(showProjectName: false)
-        let titleText = titleHeadline.text
-        let homePath = Self.abbreviateHome(session.cwd)
+        // Identity format: just the session title ("CodeIsland") — no prefix,
+        // no workspace path. A session without a title falls back to the
+        // agent's name.
+        let titleText = session.headline(showProjectName: false).text
         return HStack(spacing: 4) {
-            Text("#\(titleText)")
+            Text(titleText)
                 .font(.system(size: projectFontSize, weight: .bold, design: .monospaced))
                 .foregroundStyle(projectColor)
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .layoutPriority(2)
-
-            if showProjectName, let homePath {
-                Text("@\(homePath)")
-                    .font(.system(size: sessionFontSize, weight: .medium, design: .monospaced))
-                    .foregroundStyle(sessionColor)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .layoutPriority(1)
-                    .onTapGesture {
-                        if !session.isRemote, let cwd = session.cwd {
-                            NSWorkspace.shared.open(URL(fileURLWithPath: cwd))
-                        }
-                    }
-                    .help(!session.isRemote && session.cwd != nil ? "\(L10n.shared["open_path"]) \(session.cwd ?? "")" : "")
-            }
 
             if showGitBranch, let branch = session.gitBranch {
                 let label = session.gitIsWorktree ? "\(branch) ⧉" : branch
@@ -4567,16 +4549,6 @@ private struct SessionIdentityLine: View {
                     .fixedSize()
             }
         }
-    }
-
-    /// "/Users/<me>/project/X" → "~/project/X" — paths outside home stay as-is.
-    private static func abbreviateHome(_ path: String?) -> String? {
-        guard let path, !path.isEmpty else { return nil }
-        let home = NSHomeDirectory()
-        if path.hasPrefix(home) {
-            return "~" + path.dropFirst(home.count)
-        }
-        return path
     }
 }
 
