@@ -4484,26 +4484,34 @@ private struct SessionIdentityLine: View {
     }
 
     private func line(showsShortId: Bool) -> some View {
-        let headline = session.headline(showProjectName: showProjectName)
+        // Identity format: "#<session title>@~/<workspace path>" — the title
+        // leads and the workspace follows (e.g. "#CodeIsland@~/project/CodeIsland").
+        // With "Show project name" off the path is dropped (privacy), and a
+        // session without a title falls back to the agent's name.
+        let titleHeadline = session.headline(showProjectName: false)
+        let titleText = titleHeadline.text
+        let homePath = Self.abbreviateHome(session.cwd)
         return HStack(spacing: 4) {
-            if headline.kind == .project {
-                ProjectNameLink(
-                    name: headline.text,
-                    cwd: session.cwd,
-                    isInteractive: !session.isRemote,
-                    fontSize: projectFontSize,
-                    color: projectColor
-                )
+            Text("#\(titleText)")
+                .font(.system(size: projectFontSize, weight: .bold, design: .monospaced))
+                .foregroundStyle(projectColor)
+                .lineLimit(1)
+                .truncationMode(.tail)
                 .layoutPriority(2)
-            } else {
-                // Project name hidden: no folder link and no path tooltip either,
-                // or hovering the card would still reveal it.
-                Text(headline.text)
-                    .font(.system(size: projectFontSize, weight: .bold, design: .monospaced))
-                    .foregroundStyle(projectColor)
+
+            if showProjectName, let homePath {
+                Text("@\(homePath)")
+                    .font(.system(size: sessionFontSize, weight: .medium, design: .monospaced))
+                    .foregroundStyle(sessionColor)
                     .lineLimit(1)
-                    .truncationMode(.tail)
-                    .layoutPriority(2)
+                    .truncationMode(.middle)
+                    .layoutPriority(1)
+                    .onTapGesture {
+                        if !session.isRemote, let cwd = session.cwd {
+                            NSWorkspace.shared.open(URL(fileURLWithPath: cwd))
+                        }
+                    }
+                    .help(!session.isRemote && session.cwd != nil ? "\(L10n.shared["open_path"]) \(session.cwd ?? "")" : "")
             }
 
             if showGitBranch, let branch = session.gitBranch {
@@ -4522,31 +4530,27 @@ private struct SessionIdentityLine: View {
                 .layoutPriority(1)
             }
 
-            if let sessionLabel = headline.trailingSessionLabel {
-                Text("#\(sessionLabel)")
-                    .font(.system(size: sessionFontSize, weight: .medium, design: .monospaced))
-                    .foregroundStyle(sessionColor)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .layoutPriority(1)
+            if showsShortId {
+                Text("·")
+                    .font(.system(size: sessionFontSize, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(dividerColor)
 
-                if showsShortId {
-                    Text("·")
-                        .font(.system(size: sessionFontSize, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(dividerColor)
-
-                    Text("#\(shortSessionId(displaySessionId))")
-                        .font(.system(size: sessionFontSize, weight: .medium, design: .monospaced))
-                        .foregroundStyle(sessionColor.opacity(0.6))
-                        .fixedSize()
-                }
-            } else if showsShortId {
                 Text("#\(shortSessionId(displaySessionId))")
                     .font(.system(size: sessionFontSize, weight: .medium, design: .monospaced))
                     .foregroundStyle(sessionColor.opacity(0.6))
                     .fixedSize()
             }
         }
+    }
+
+    /// "/Users/<me>/project/X" → "~/project/X" — paths outside home stay as-is.
+    private static func abbreviateHome(_ path: String?) -> String? {
+        guard let path, !path.isEmpty else { return nil }
+        let home = NSHomeDirectory()
+        if path.hasPrefix(home) {
+            return "~" + path.dropFirst(home.count)
+        }
+        return path
     }
 }
 
