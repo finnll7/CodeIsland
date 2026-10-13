@@ -364,10 +364,16 @@ final class AppState {
     /// Per-workspace model labels for Panda sessions whose hook events carry
     /// no model (read from Panda's own state.db, cached per cwd).
     private var pandaWorkspaceModelCache: [String: (label: String?, at: Date)] = [:]
+    /// Panda's global default model (`models.defaultModelId`) as a card label —
+    /// cached alongside the workspace cache.
+    private var pandaDefaultModelCache: (label: String?, at: Date)?
 
     /// The model a Panda session in `cwd` last used, from Panda's own
     /// `modelRecent/...` history — a fallback for sessions whose hook events
-    /// never name a model. Cached for 2 minutes; external ("custom:<uuid>")
+    /// never name a model. That history is only written by the Panda desktop
+    /// app, so a workspace that has only ever seen CLI sessions has no record
+    /// at all; those run on Panda's global default model, which becomes the
+    /// second fallback. Cached for 2 minutes; external ("custom:<uuid>")
     /// ids are skipped (their balance already shows on the stats footer).
     func pandaWorkspaceModelLabel(cwd: String?, source: String) -> String? {
         guard source == "panda", let cwd, !cwd.isEmpty else { return nil }
@@ -375,17 +381,40 @@ final class AppState {
             return cached.label
         }
         let label: String? = {
-            guard let json = PandaTokenProvider.readWorkspaceModelId(cwd: cwd),
-                  let data = json.data(using: .utf8),
-                  let entries = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
-                  let first = entries.first else { return nil }
-            let modelId = first["modelId"] as? String
-            let modelName = first["modelName"] as? String
-            let raw = (modelName?.isEmpty == false ? modelName : modelId) ?? ""
-            guard !raw.isEmpty, !raw.hasPrefix("custom:") else { return nil }
-            return ModelLabel.label(model: raw, effort: nil)
+            if let json = PandaTokenProvider.readWorkspaceModelId(cwd: cwd),
+               let data = json.data(using: .utf8),
+               let entries = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+               let first = entries.first {
+                let modelId = first["modelId"] as? String
+                let modelName = first["modelName"] as? String
+                let raw = (modelName?.isEmpty == false ? modelName : modelId) ?? ""
+                if !raw.isEmpty, !raw.hasPrefix("custom:") {
+                    return ModelLabel.label(model: raw, effort: nil)
+                }
+                // Custom external model selected for this workspace — its
+                // balance already shows on the stats footer; no tag.
+                return nil
+            }
+            // No workspace record (CLI-only workspace) — the session runs on
+            // Panda's global default model.
+            return pandaDefaultModelLabel()
         }()
         pandaWorkspaceModelCache[cwd] = (label, Date())
+        return label
+    }
+
+    /// `models.defaultModelId` from Panda's state.db as a display label.
+    /// Same custom-model skip as the workspace path.
+    private func pandaDefaultModelLabel() -> String? {
+        if let cached = pandaDefaultModelCache, Date().timeIntervalSince(cached.at) < 120 {
+            return cached.label
+        }
+        let label: String? = {
+            guard let raw = PandaTokenProvider.readStateValue("models.defaultModelId"),
+                  !raw.isEmpty, !raw.hasPrefix("custom:") else { return nil }
+            return ModelLabel.label(model: raw, effort: nil)
+        }()
+        pandaDefaultModelCache = (label, Date())
         return label
     }
     /// Panda's selected model — when an external ("custom") model is active,
