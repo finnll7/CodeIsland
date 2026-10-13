@@ -618,6 +618,39 @@ struct NotchPanelView: View {
             panelWidth: panelWidth, notchWidth: notchW, hasNotch: hasNotch
         ))
         .animation(NotchAnimation.open, value: appState.surface)
+        // Surface keep-alive (see SurfaceKeepAlive below): pushes a real
+        // SwiftUI → CA frame on a fixed cadence so the WindowServer never
+        // has a reason to drop this borderless, non-opaque panel's
+        // compositing while the rest of the content is idle.
+        .overlay(alignment: .topLeading) {
+            SurfaceKeepAlive()
+        }
+    }
+}
+
+/// macOS 26/27 WindowServer drops compositing of the panel's borderless,
+/// non-opaque window once it stops receiving new frames (the #304 family):
+/// pausing music stops the 1 Hz progress ticks, a music-card
+/// appear/disappear transition leaves the view tree static, and quiet
+/// minutes with no hook events leave the bar wings / expanded body
+/// rendering blank until the next unrelated state change. This sub-visible
+/// dot toggles its opacity every 1.5 s, forcing the same kind of SwiftUI →
+/// CA commit a hook event produces — the only mechanism verified to restore
+/// the surface once the server has dropped it (window-level alpha nudges
+/// do not).
+private struct SurfaceKeepAlive: View {
+    @State private var tick = false
+    private let timer = Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        Color.black
+            .opacity(tick ? 0.002 : 0.001)
+            .frame(width: 1, height: 1)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            .onReceive(timer) { _ in
+                tick.toggle()
+            }
     }
 }
 

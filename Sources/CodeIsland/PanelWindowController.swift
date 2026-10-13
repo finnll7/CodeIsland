@@ -205,6 +205,8 @@ class PanelWindowController: NSObject, NSWindowDelegate {
     /// Post-settle surface recommit (see scheduleSurfaceSettleRecommit).
     private var surfaceRecommitItem: DispatchWorkItem?
     private var lastSurfaceForRecommit: IslandSurface = .collapsed
+    /// Periodic surface heartbeat (see startSurfaceHeartbeat).
+    private var surfaceHeartbeatTimer: Timer?
 
     init(appState: AppState) {
         self.appState = appState
@@ -280,6 +282,7 @@ class PanelWindowController: NSObject, NSWindowDelegate {
         updatePosition()
         panel.orderFrontRegardless()
         MascotAnimationGate.shared.setPanelVisible(true)
+        startSurfaceHeartbeat()
 
         // Wake rebuilds: display reconfiguration after sleep arrives in waves
         // (0.5s and 2s rebuilds can still land on degenerate frames) — two
@@ -351,6 +354,11 @@ class PanelWindowController: NSObject, NSWindowDelegate {
                 guard let self = self else { return }
                 self.refreshCurrentScreen()
                 if !self.fullscreenLatch { self.updateVisibility() }
+                // Frontmost-app activation is the classic moment the
+                // WindowServer drops this panel's surface (opening QQ Music
+                // and friends); recommit it instead of waiting for the
+                // heartbeat to catch up.
+                self.scheduleSurfaceSettleRecommit()
             }
         }
 
@@ -611,6 +619,39 @@ class PanelWindowController: NSObject, NSWindowDelegate {
         }
         surfaceRecommitItem = item
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.7, execute: item)
+    }
+
+    /// Keep the panel surface from ever going idle. The macOS 26/27
+    /// WindowServer opportunistically drops compositing of this borderless,
+    /// non-opaque panel once it stops receiving new frames (#304 family):
+    /// pausing music stops the 1 Hz progress ticks, a music-card
+    /// appear/disappear transition leaves the view tree static, and quiet
+    /// minutes with no hook events leave the bar wings and the expanded body
+    /// rendering blank until the next unrelated state change. The settle
+    /// recommit above only covers surface transitions, so this heartbeat
+    /// re-applies the same one-tick alpha nudge on a fixed cadence: a drop
+    /// can never outlive one interval (~1.5 s) instead of lasting until the
+    /// next hook event.
+    private func startSurfaceHeartbeat() {
+        surfaceHeartbeatTimer?.invalidate()
+        let timer = Timer(timeInterval: 1.5, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.performSurfaceHeartbeat() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        surfaceHeartbeatTimer = timer
+    }
+
+    /// One heartbeat tick: the same alpha nudge the settle recommit uses.
+    /// Skipped while the panel is hidden or a recommit is already in flight
+    /// (alpha still at its 0.995 notch).
+    private func performSurfaceHeartbeat() {
+        guard let panel, panel.isVisible, panel.alphaValue == 1.0 else { return }
+        panel.contentView?.needsDisplay = true
+        panel.alphaValue = 0.995
+        Task { @MainActor [weak self] in
+            guard let self, let panel = self.panel else { return }
+            panel.alphaValue = 1.0
+        }
     }
 
     private func setupHorizontalDragMonitor() {
