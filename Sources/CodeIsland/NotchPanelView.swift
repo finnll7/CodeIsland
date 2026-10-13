@@ -4410,6 +4410,17 @@ private struct ThinScrollView<Content: View>: NSViewRepresentable {
     let maxHeight: CGFloat
     @ViewBuilder let content: Content
 
+    /// SwiftUI's hosting view swallows scroll-wheel events even when the
+    /// embedded content has no scrollable surface of its own — as the session
+    /// list's NSHostingView-as-documentView did, which silently killed every
+    /// scroll attempt on the list. Forward them to the responder chain so the
+    /// enclosing NSScrollView scrolls.
+    private final class PassthroughHostingView: NSHostingView<Content> {
+        override func scrollWheel(with event: NSEvent) {
+            nextResponder?.scrollWheel(with: event)
+        }
+    }
+
     /// AppKit puts the system's preferred style back (legacy with a mouse
     /// attached or "Show scroll bars: Always") on its own schedule; a legacy
     /// scroller took 13pt off the session list's width until the next update.
@@ -4428,29 +4439,34 @@ private struct ThinScrollView<Content: View>: NSViewRepresentable {
         scrollView.drawsBackground = false
         scrollView.scrollerKnobStyle = .light
 
-        let hosting = NSHostingView(rootView: content)
-        hosting.translatesAutoresizingMaskIntoConstraints = false
+        let hosting = PassthroughHostingView(rootView: content)
+        // Traditional AppKit document management: the clip view positions and
+        // scrolls the document view through its FRAME. Auto Layout pinning
+        // (top/width constraints to the clip view) froze that frame to the
+        // clip's — scrolling moved the bounds but the document rode along, so
+        // the list never moved no matter the wheel.
+        hosting.translatesAutoresizingMaskIntoConstraints = true
         scrollView.documentView = hosting
 
         scrollView.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            hosting.leadingAnchor.constraint(equalTo: scrollView.contentView.leadingAnchor),
-            hosting.trailingAnchor.constraint(equalTo: scrollView.contentView.trailingAnchor),
-            // Pin the document view to the clip view's top and width; its
-            // height stays the content's natural height, which is what makes
-            // the scroll range materialize (before, the hosting view kept its
-            // full height inside a fixed frame — the list grew past the
-            // window with no way to reach the overflow).
-            hosting.topAnchor.constraint(equalTo: scrollView.contentView.topAnchor),
-            hosting.bottomAnchor.constraint(greaterThanOrEqualTo: scrollView.contentView.bottomAnchor),
-        ])
-
         return scrollView
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        if let hosting = scrollView.documentView as? NSHostingView<Content> {
+        if let hosting = scrollView.documentView as? PassthroughHostingView {
             hosting.rootView = content
+            // Re-sync the document frame to the content's natural height after
+            // a rootView swap (cards appear/disappear change it) — otherwise
+            // the scroll range drifts out of date and the wheel does nothing.
+            let clip = scrollView.contentView
+            let natural = hosting.fittingSize
+            var frame = hosting.frame
+            let newWidth = clip.bounds.width
+            let newHeight = max(1, natural.height)
+            if abs(frame.width - newWidth) > 0.5 || abs(frame.height - newHeight) > 0.5 {
+                frame.size = NSSize(width: newWidth, height: newHeight)
+                hosting.frame = frame
+            }
         }
         scrollView.scrollerStyle = .overlay
         scrollView.verticalScroller?.controlSize = .mini

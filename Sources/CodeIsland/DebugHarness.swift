@@ -590,5 +590,6 @@ enum DebugHarness {
             state.sessions["preview-stress-\(i)"] = s
         }
         state.activeSessionId = "preview-stress-0"
+
     }
 }
