@@ -431,12 +431,10 @@ struct NotchPanelView: View {
             .frame(width: panelWidth)
             .clipped()
             .background(
-                NotchPanelShape(
-                    topExtension: shouldShowExpanded ? 14 : 3,
-                    bottomRadius: shouldShowExpanded ? 24 : 12,
-                    minHeight: notchHeight
-                )
-                .fill(.black)
+                // TEMP @1x diagnosis: is the custom Shape the layer that fails
+                // to render on a 1x-backed screen?
+                RoundedRectangle(cornerRadius: shouldShowExpanded ? 24 : 12, style: .continuous)
+                    .fill(.black)
             )
             .offset(y: curtainOffset)
             .opacity(curtainOpacity)
@@ -3115,9 +3113,17 @@ private struct SessionListView: View {
                 .padding(.bottom, 4)
             }
             if needsScroll {
-                ThinScrollView(maxHeight: SessionListMetrics.scrollHeight(maxVisibleSessions: maxVisibleSessions)) {
+                // Native SwiftUI scrolling: the previous NSViewRepresentable
+                // wrapper fought the layout system over its height contract
+                // (sizeThatFits vs documentView pinning) and kept regressing
+                // into a frozen, unscrollable list. The framework ScrollView
+                // has no such contract — content taller than the frame simply
+                // scrolls.
+                ScrollView(.vertical) {
                     content
                 }
+                .scrollIndicators(.hidden)
+                .frame(maxHeight: SessionListMetrics.scrollHeight(maxVisibleSessions: maxVisibleSessions))
                 .clipShape(
                     UnevenRoundedRectangle(
                         topLeadingRadius: 0, bottomLeadingRadius: 20,
@@ -4402,86 +4408,6 @@ private struct DailyUsageSparkline: View {
         .frame(height: 10, alignment: .bottom)
         // Decorative: the tooltip and the line's label carry the numbers.
         .accessibilityHidden(true)
-    }
-}
-
-/// Thin overlay scrollbar via NSScrollView — ignores system "show scrollbar" preference.
-private struct ThinScrollView<Content: View>: NSViewRepresentable {
-    let maxHeight: CGFloat
-    @ViewBuilder let content: Content
-
-    /// SwiftUI's hosting view swallows scroll-wheel events even when the
-    /// embedded content has no scrollable surface of its own — as the session
-    /// list's NSHostingView-as-documentView did, which silently killed every
-    /// scroll attempt on the list. Forward them to the responder chain so the
-    /// enclosing NSScrollView scrolls.
-    private final class PassthroughHostingView: NSHostingView<Content> {
-        override func scrollWheel(with event: NSEvent) {
-            nextResponder?.scrollWheel(with: event)
-        }
-    }
-
-    /// AppKit puts the system's preferred style back (legacy with a mouse
-    /// attached or "Show scroll bars: Always") on its own schedule; a legacy
-    /// scroller took 13pt off the session list's width until the next update.
-    private final class OverlayScrollView: NSScrollView {
-        override var scrollerStyle: NSScroller.Style {
-            get { super.scrollerStyle }
-            set { super.scrollerStyle = .overlay }
-        }
-    }
-
-    func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = OverlayScrollView()
-        scrollView.hasVerticalScroller = true
-        scrollView.scrollerStyle = .overlay
-        scrollView.verticalScroller?.controlSize = .mini
-        scrollView.drawsBackground = false
-        scrollView.scrollerKnobStyle = .light
-
-        let hosting = PassthroughHostingView(rootView: content)
-        // Traditional AppKit document management: the clip view positions and
-        // scrolls the document view through its FRAME. Auto Layout pinning
-        // (top/width constraints to the clip view) froze that frame to the
-        // clip's — scrolling moved the bounds but the document rode along, so
-        // the list never moved no matter the wheel.
-        hosting.translatesAutoresizingMaskIntoConstraints = true
-        scrollView.documentView = hosting
-
-        scrollView.translatesAutoresizingMaskIntoConstraints = false
-        return scrollView
-    }
-
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        if let hosting = scrollView.documentView as? PassthroughHostingView {
-            hosting.rootView = content
-            // Re-sync the document frame to the content's natural height after
-            // a rootView swap (cards appear/disappear change it) — otherwise
-            // the scroll range drifts out of date and the wheel does nothing.
-            let clip = scrollView.contentView
-            let natural = hosting.fittingSize
-            var frame = hosting.frame
-            let newWidth = clip.bounds.width
-            let newHeight = max(1, natural.height)
-            if abs(frame.width - newWidth) > 0.5 || abs(frame.height - newHeight) > 0.5 {
-                frame.size = NSSize(width: newWidth, height: newHeight)
-                hosting.frame = frame
-            }
-        }
-        scrollView.scrollerStyle = .overlay
-        scrollView.verticalScroller?.controlSize = .mini
-    }
-
-    /// The height contract that makes the scrolling real: shrink with the
-    /// SwiftUI proposal, never exceed the content's natural height, and cap
-    /// at `maxHeight`. Without this the represensable reported its full
-    /// content height, the window clipped the overflow, and nothing scrolled.
-    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSScrollView, context: Context) -> CGSize? {
-        let contentHeight = nsView.documentView?.fittingSize.height ?? 0
-        let width = proposal.width ?? nsView.fittingSize.width
-        let proposedHeight = proposal.height ?? contentHeight
-        let height = min(proposedHeight, maxHeight).rounded(.down)
-        return CGSize(width: width, height: max(0, height))
     }
 }
 
