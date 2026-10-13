@@ -591,5 +591,43 @@ enum DebugHarness {
         }
         state.activeSessionId = "preview-stress-0"
 
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(5))
+            guard let panel = NSApp.windows.first(where: { $0.isVisible && $0.frame.width > 500 && $0.frame.height > 300 }) else { return }
+            sample("00baseline", panel: panel)
+
+            // 1. frame perturbation
+            var f = panel.frame
+            panel.setFrame(NSRect(x: f.origin.x, y: f.origin.y, width: f.width - 1, height: f.height - 1), display: true)
+            try? await Task.sleep(for: .milliseconds(300))
+            panel.setFrame(f, display: true)
+            try? await Task.sleep(for: .milliseconds(1500))
+            sample("01afterFrameNudge", panel: panel)
+
+            // 2. alpha full cycle
+            panel.alphaValue = 0
+            try? await Task.sleep(for: .milliseconds(250))
+            panel.alphaValue = 1
+            try? await Task.sleep(for: .milliseconds(1500))
+            sample("02afterAlphaCycle", panel: panel)
+
+            // 3. orderOut/orderIn
+            panel.orderOut(nil)
+            try? await Task.sleep(for: .milliseconds(400))
+            panel.orderFrontRegardless()
+            try? await Task.sleep(for: .milliseconds(1500))
+            sample("03afterReorder", panel: panel)
+
+            // 4. layer reset on the content view
+            if let cv = panel.contentView {
+                cv.wantsLayer = false
+                cv.layer?.contents = nil
+                cv.wantsLayer = true
+                cv.needsDisplay = true
+            }
+            try? await Task.sleep(for: .milliseconds(1500))
+            sample("04afterLayerReset", panel: panel)
+        }
+
     }
 }
