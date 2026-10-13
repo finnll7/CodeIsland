@@ -1800,13 +1800,41 @@ final class AppState {
         }
     }
 
+    // MARK: - Hook event coalescing (render-pressure throttle)
+
+    /// High-frequency hook events (PreToolUse/PostToolUse storms while tools
+    /// run) re-render the whole panel once per event, and on macOS 27 that
+    /// render pressure triggers WindowServer compositing drops on the
+    /// borderless panel — the display-config-dependent "whole island turns
+    /// invisible" regression. The production path (HookServer) feeds events
+    /// through this coalescer: everything arriving within a 200 ms window is
+    /// applied in one FIFO pass, capping renders at ~5/s. Ordering is
+    /// preserved; permission/question events bypass coalescing entirely (they
+    /// carry a continuation and must not wait).
+    @ObservationIgnored private var coalescedEvents: [HookEvent] = []
+    @ObservationIgnored private var coalesceFlushTask: Task<Void, Never>?
+
+    func handleEventCoalesced(_ event: HookEvent) {
+        coalescedEvents.append(event)
+        guard coalesceFlushTask == nil else { return }
+        coalesceFlushTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            guard let self, !self.coalescedEvents.isEmpty else { return }
+            let batch = self.coalescedEvents
+            self.coalescedEvents.removeAll()
+            self.coalesceFlushTask = nil
+            for event in batch {
+                handleEvent(event)
+            }
+        }
+    }
+
     func handleEvent(_ event: HookEvent) {
         // Skip events from subagent worktrees — tracked via parent's SubagentStart/Stop
         if let cwd = event.rawJSON["cwd"] as? String,
            cwd.contains("/.claude/worktrees/agent-") || cwd.contains("/.git/worktrees/agent-") {
             return
         }
-
         let source = event.rawJSON["_source"] as? String
         let hasTranscriptPath = (event.rawJSON["transcript_path"] as? String)
             .map { !$0.isEmpty } ?? false

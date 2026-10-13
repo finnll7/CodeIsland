@@ -814,7 +814,7 @@ class HookServer {
             }
 
         case .event:
-            appState.handleEvent(event)
+            appState.handleEventCoalesced(event)
             sendResponse(connection: connection, data: Data("{}".utf8))
         }
     }
