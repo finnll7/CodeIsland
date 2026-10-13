@@ -111,12 +111,24 @@ struct PanelScreenHopMotion {
 }
 
 enum PanelHeightMetrics {
+    /// The window budgets this much per visible session
+    /// (SessionListMetrics.heightPerSession's twin — keep them in sync).
+    static let heightPerSession: CGFloat = 90
+
+    /// Room the expanded dashboard chrome needs outside the fixed task
+    /// box: the Now-Playing card and the ambient status card (Things3 /
+    /// weather / battery) above it, the usage & quota footer lines below.
+    /// The old budget counted only the cards, so with both header cards
+    /// live the pinned rows were pushed past the window's bottom edge and
+    /// clipped away (the invisible Panda usage bar).
+    static let expandedChromeReserve: CGFloat = 310
+
     /// Window height the panel asks for before clamping to the screen: room
-    /// for `maxVisibleSessions` cards plus the notch bar. Shared with the
-    /// completion card, whose reply area has to fit inside the same window.
+    /// for `maxVisibleSessions` cards plus the notch bar, plus the expanded
+    /// chrome reserve.
     static func desiredHeight(maxVisibleSessions: Int) -> CGFloat {
         let sessions = CGFloat(max(2, maxVisibleSessions))
-        return max(300, sessions * 90 + 60)
+        return max(300, sessions * heightPerSession + 60 + expandedChromeReserve)
     }
 }
 
@@ -403,7 +415,10 @@ class PanelWindowController: NSObject, NSWindowDelegate {
             notchW: notchW,
             // Same wake guard as panelSize: never freeze a degenerate screen
             // width into the SwiftUI content.
-            screenWidth: max(screen.frame.width, 800)
+            screenWidth: max(screen.frame.width, 800),
+            // The expanded session list fills everything the window offers
+            // below the notch bar; same size the window was created with.
+            windowHeight: panelSize(for: screen).height
         )
         let contentView = NotchHostingView(rootView: rootView)
         contentView.sizingOptions = []

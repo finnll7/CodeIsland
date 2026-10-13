@@ -116,6 +116,11 @@ struct NotchPanelView: View {
     let notchHeight: CGFloat
     let notchW: CGFloat
     let screenWidth: CGFloat
+    /// The panel window's height (PanelWindowController.panelSize). The
+    /// expanded session list is capped at what fits below the notch bar;
+    /// beyond that its task cards scroll inside the list. Tests that host
+    /// the view standalone keep the default.
+    var windowHeight: CGFloat = 600
 
     @AppStorage(SettingsKey.contentFontSize) private var contentFontSize = SettingsDefaults.contentFontSize
     @AppStorage(SettingsKey.showAgentDetails) private var showAgentDetails = SettingsDefaults.showAgentDetails
@@ -229,6 +234,12 @@ struct NotchPanelView: View {
 
     /// The panel window's width (PanelWindowController.panelSize).
     private var maxPanelWidth: CGFloat { min(620, screenWidth - 40) }
+
+    /// The expanded session list's height cap: everything the window offers
+    /// below the notch bar and its divider. Inside, the Now-Playing and
+    /// ambient cards pin to the top, the usage rows to the bottom, and the
+    /// task cards take what's between — scrolling when they don't fit.
+    private var expandedListHeight: CGFloat { max(160, windowHeight - notchHeight - 1) }
 
     /// The collapsed active bar, before any room for the plan-limit chip.
     private var collapsedBarWidth: CGFloat {
@@ -401,7 +412,7 @@ struct NotchPanelView: View {
                         SessionListView(appState: appState, onlySessionId: appState.justCompletedSessionId)
                             .transition(.blurFade.combined(with: .move(edge: .top)))
                     case .sessionList:
-                        SessionListView(appState: appState, onlySessionId: nil)
+                        SessionListView(appState: appState, onlySessionId: nil, availableHeight: expandedListHeight)
                             .transition(.blurFade.combined(with: .move(edge: .top)))
                     case .collapsed:
                         EmptyView()
@@ -2864,50 +2875,17 @@ private struct OptionRow: View {
 
 // MARK: - Session List
 
-/// When the expanded session list scrolls, and how tall it may get.
-enum SessionListMetrics {
-    /// The window budgets this much per visible session
-    /// (PanelHeightMetrics.desiredHeight).
-    static let heightPerSession: CGFloat = 90
-
-    static func scrollHeight(maxVisibleSessions: Int) -> CGFloat {
-        CGFloat(maxVisibleSessions) * heightPerSession
-    }
-
-    /// Room the pinned stats rows (usage / quota / Panda balance) need below
-    /// the scroll area — counted into the needsScroll check so a list that
-    /// would push them off the window still scrolls.
-    static let pinnedFooterReserve: CGFloat = 96
-
-    /// Scroll once there are more sessions than the setting shows — or fewer,
-    /// but taller than the room budgeted for them: cards with a task list, an
-    /// approval row or a recap run well past 90pt each, and four of them used
-    /// to push the list and its footer off the bottom of the window with no
-    /// way to reach them.
-    ///
-    /// Compact rows go by height alone: the window is still sized for
-    /// `maxVisibleSessions` cards, and one-line rows fill that room — eight
-    /// fit where five cards did — before the list scrolls.
-    static func needsScroll(
-        isCompletionCard: Bool,
-        sessionCount: Int,
-        contentHeight: CGFloat,
-        maxVisibleSessions: Int,
-        density: SessionListDensity = .comfortable
-    ) -> Bool {
-        guard !isCompletionCard else { return false }
-        let tooTall = contentHeight > scrollHeight(maxVisibleSessions: maxVisibleSessions) + 0.5
-        switch density {
-        case .comfortable: return sessionCount > maxVisibleSessions || tooTall
-        case .compact: return tooTall
-        }
-    }
-}
-
 private struct SessionListView: View {
     var appState: AppState
     /// When set, only show this session (auto-expand on completion)
     var onlySessionId: String? = nil
+    /// Height cap for the expanded list (dashboard layout). The task
+    /// section is a FIXED slot — maxVisibleSessions cards tall, whatever
+    /// the task count (overflow scrolls inside it) — with the Now-Playing
+    /// and ambient status cards pinned above and the usage/quota rows
+    /// pinned below, so no bar ever moves or resizes as tasks come and go.
+    /// nil (completion card) keeps the natural hug-content height.
+    var availableHeight: CGFloat? = nil
     @ObservedObject private var l10n = L10n.shared
     @AppStorage(SettingsKey.sessionGroupingMode) private var groupingMode = SettingsDefaults.sessionGroupingMode
     @AppStorage(SettingsKey.maxVisibleSessions) private var maxVisibleSessions = SettingsDefaults.maxVisibleSessions
@@ -2919,8 +2897,13 @@ private struct SessionListView: View {
     @AppStorage(SettingsKey.contentFontSize) private var contentFontSize = SettingsDefaults.contentFontSize
     @AppStorage(SettingsKey.showProjectName) private var showProjectName = SettingsDefaults.showProjectName
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    /// Natural height of the session cards, scrolling or not.
+    /// Natural height of the task cards, measured inside the scroll view.
     @State private var contentHeight: CGFloat = 0
+    /// Measured heights of the pinned sections — header cards above the
+    /// list, usage rows below — so the scroll box gets exactly the room
+    /// they leave inside `availableHeight`.
+    @State private var pinnedTopHeight: CGFloat = 0
+    @State private var pinnedBottomHeight: CGFloat = 0
     /// The order on screen is held while the pointer is over the list.
     @State private var orderFreeze = SessionOrderFreeze()
     @State private var thawTask: Task<Void, Never>?
@@ -3021,20 +3004,9 @@ private struct SessionListView: View {
     }
 
     var body: some View {
-        // Compute once per render — groupedSessions, totalCount, needsScroll
+        // Compute once per render — groupedSessions, density, shared columns.
         let groups = groupedSessions
-        let totalSessionCount = groups.reduce(0) { $0 + $1.ids.count }
         let density = self.density
-        let needsScroll = SessionListMetrics.needsScroll(
-            isCompletionCard: onlySessionId != nil,
-            sessionCount: totalSessionCount,
-            // The stats rows are pinned below the list (outside the scroll
-            // area): count their room against the window so a list that fits
-            // its budget only by stealing the footer's space still scrolls.
-            contentHeight: contentHeight + SessionListMetrics.pinnedFooterReserve,
-            maxVisibleSessions: maxVisibleSessions,
-            density: density
-        )
         // Compact rows share their column widths so the status words line up.
         let fontSize = CGFloat(contentFontSize)
         let compactColumns: (project: CGFloat, status: CGFloat) = density == .compact
@@ -3094,8 +3066,9 @@ private struct SessionListView: View {
             }
         }
         .padding(.vertical, 4)
-        // The same in both branches: inside the scroll view the content still
-        // lays out at its natural height, so switching never flips it back.
+        // Natural height of the cards, laid out inside the scroll view where
+        // the height is unconstrained. Only the no-sessions panel sizes its
+        // box to this — with sessions the box is a fixed slot.
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
         // Cards needing you sort to the top — but not while the pointer is on
         // the list, where a card moving would put another under the cursor
@@ -3124,76 +3097,85 @@ private struct SessionListView: View {
         VStack(spacing: 0) {
             // Now Playing lives at the very top — ambient info first, so it is
             // actually seen (the footer version was too easy to miss).
-            if appState.nowPlaying.isLive, onlySessionId == nil {
-                NowPlayingHeaderCard(monitor: appState.nowPlaying)
+            // Both header cards are one measured pinned section: their room
+            // comes off the scroll box's budget, never off each other.
+            VStack(spacing: 0) {
+                if appState.nowPlaying.isLive, onlySessionId == nil {
+                    NowPlayingHeaderCard(monitor: appState.nowPlaying)
+                        .padding(.horizontal, 12)
+                        .padding(.top, 10)
+                        .padding(.bottom, 4)
+                }
+                // Ambient card right under it — Things3 to-dos (left, when enabled)
+                // or calendar / weather (middle) / battery (right).
+                if appState.things.takesOverCalendar
+                    || appState.calendar.needsGrant || appState.calendar.isLive
+                    || appState.weather.isLive || appState.battery.isLive, onlySessionId == nil {
+                    AmbientHeaderCard(
+                        calendar: appState.calendar,
+                        things: appState.things,
+                        weather: appState.weather,
+                        battery: appState.battery
+                    )
                     .padding(.horizontal, 12)
-                    .padding(.top, 10)
+                    .padding(.top, appState.nowPlaying.isLive ? 4 : 10)
                     .padding(.bottom, 4)
+                }
             }
-            // Ambient card right under it — Things3 to-dos (left, when enabled)
-            // or calendar / weather (middle) / battery (right).
-            if appState.things.takesOverCalendar
-                || appState.calendar.needsGrant || appState.calendar.isLive
-                || appState.weather.isLive || appState.battery.isLive, onlySessionId == nil {
-                AmbientHeaderCard(
-                    calendar: appState.calendar,
-                    things: appState.things,
-                    weather: appState.weather,
-                    battery: appState.battery
-                )
-                .padding(.horizontal, 12)
-                .padding(.top, appState.nowPlaying.isLive ? 4 : 10)
-                .padding(.bottom, 4)
-            }
-            if needsScroll {
-                // Native SwiftUI scrolling: the previous NSViewRepresentable
-                // wrapper fought the layout system over its height contract
-                // (sizeThatFits vs documentView pinning) and kept regressing
-                // into a frozen, unscrollable list. The framework ScrollView
-                // has no such contract — content taller than the frame simply
-                // scrolls.
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { pinnedTopHeight = $0 }
+
+            // Task cards — the dashboard's fixed task slot. With sessions
+            // running, the box is always maxVisibleSessions cards tall:
+            // fewer tasks leave the spare room empty (a stable dashboard,
+            // nothing moves as tasks come and go), more scroll inside the
+            // box instead of pushing the pinned rows past the window's
+            // bottom edge (the invisible Panda usage bar). Only a window
+            // clamped by the screen — or no sessions at all, where there is
+            // no task section to reserve — sizes the box down. The
+            // completion card (availableHeight == nil) hugs naturally.
+            if availableHeight != nil {
+                let roomLeft = max(0, availableHeight! - pinnedTopHeight - pinnedBottomHeight)
+                let slotHeight = appState.sessions.isEmpty
+                    ? contentHeight
+                    : CGFloat(max(1, maxVisibleSessions)) * PanelHeightMetrics.heightPerSession
                 ScrollView(.vertical) {
                     content
                 }
                 .scrollIndicators(.hidden)
-                .frame(maxHeight: SessionListMetrics.scrollHeight(maxVisibleSessions: maxVisibleSessions))
-                .clipShape(
-                    UnevenRoundedRectangle(
-                        topLeadingRadius: 0, bottomLeadingRadius: 20,
-                        bottomTrailingRadius: 20, topTrailingRadius: 0,
-                        style: .continuous
-                    )
-                )
+                .frame(height: max(0, min(slotHeight, roomLeft)))
             } else {
                 content
             }
 
-            // Full session list only — the completion card stays focused on
-            // the finished session. The stats rows PIN to the window bottom:
-            // the session list above scrolls, so enough concurrent tasks never
-            // push the usage/quota figures out of reach.
-            if onlySessionId == nil {
-                SessionListFooter(appState: appState, showUsageStats: showUsageStats, showClaudeQuota: showClaudeQuota)
+            // The pinned footer rows — another measured section: usage /
+            // quota lines keep their room whatever the list above does.
+            VStack(spacing: 0) {
+                // Full session list only — the completion card stays focused on
+                // the finished session.
+                if onlySessionId == nil {
+                    SessionListFooter(appState: appState, showUsageStats: showUsageStats, showClaudeQuota: showClaudeQuota)
+                }
+                // Panda stats — one line, split left/right: weekly usage on the
+                // left, plan balance (or the external model's balance when a
+                // "custom" model is selected in Panda) on the right. Kept separate
+                // from the upstream SessionListFooter, which owns the Claude rows.
+                let pandaStatsVisible = (showPandaUsage && appState.pandaUsage != nil
+                    && !(appState.pandaUsage?.thisWeek.isEmpty ?? true))
+                    || (showPandaQuota && (appState.pandaQuota.snapshot != nil
+                        || appState.pandaQuota.lastError != nil
+                        || !appState.pandaQuota.isConfigured))
+                    || appState.externalModel.isLive
+                if pandaStatsVisible, onlySessionId == nil {
+                    PandaStatsFooterLine(
+                        usage: appState.pandaUsage,
+                        quota: appState.pandaQuota,
+                        external: appState.externalModel.externalModel,
+                        showUsage: showPandaUsage,
+                        showQuota: showPandaQuota
+                    )
+                }
             }
-            // Panda stats — one line, split left/right: weekly usage on the
-            // left, plan balance (or the external model's balance when a
-            // "custom" model is selected in Panda) on the right. Kept separate
-            // from the upstream SessionListFooter, which owns the Claude rows.
-            let pandaStatsVisible = (showPandaUsage && appState.pandaUsage != nil
-                && !(appState.pandaUsage?.thisWeek.isEmpty ?? true))
-                || (showPandaQuota && (appState.pandaQuota.snapshot != nil
-                    || appState.pandaQuota.lastError != nil
-                    || !appState.pandaQuota.isConfigured))
-                || appState.externalModel.isLive
-            if pandaStatsVisible, onlySessionId == nil {
-                PandaStatsFooterLine(
-                    usage: appState.pandaUsage,
-                    quota: appState.pandaQuota,
-                    external: appState.externalModel.externalModel,
-                    showUsage: showPandaUsage,
-                    showQuota: showPandaQuota
-                )
-            }
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { pinnedBottomHeight = $0 }
         }
     }
 }

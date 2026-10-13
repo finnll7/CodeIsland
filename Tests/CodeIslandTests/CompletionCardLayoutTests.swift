@@ -229,7 +229,7 @@ struct PanelHost {
         let maxVisible = UserDefaults.standard.object(forKey: SettingsKey.maxVisibleSessions) as? Int
             ?? SettingsDefaults.maxVisibleSessions
         height = PanelHeightMetrics.desiredHeight(maxVisibleSessions: maxVisible)
-        let view = NotchPanelView(appState: state, hasNotch: true, notchHeight: notchHeight, notchW: 185, screenWidth: 1512)
+        let view = NotchPanelView(appState: state, hasNotch: true, notchHeight: notchHeight, notchW: 185, screenWidth: 1512, windowHeight: height)
             .environment(\.mascotStaticTime, 5.2)
             .background(Color(red: 1, green: 0, blue: 0))
         host = NSHostingView(rootView: AnyView(view))

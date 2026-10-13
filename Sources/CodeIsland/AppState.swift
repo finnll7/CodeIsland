@@ -1458,7 +1458,11 @@ final class AppState {
     /// on the first expansion.
     /// `force` bypasses the 120s staleness check — used on system wake.
     func refreshClaudeUsageIfStale(force: Bool = false) {
-        guard UserDefaults.standard.bool(forKey: SettingsKey.showUsageStats) else { return }
+        // object(forKey:) + default: bool(forKey:) is false for a key the user
+        // never touched, and the toggle defaults ON — a fresh install would
+        // never scan (same caveat as the ambient monitors).
+        guard UserDefaults.standard.object(forKey: SettingsKey.showUsageStats) as? Bool
+            ?? SettingsDefaults.showUsageStats else { return }
         guard !Self.usageScanInFlight else { return }
         if !force, let scannedAt = claudeUsage?.scannedAt, Date().timeIntervalSince(scannedAt) < 120 { return }
         Self.usageScanInFlight = true
@@ -1482,7 +1486,12 @@ final class AppState {
     /// finished. The incremental file cache keeps a forced rescan cheap (only
     /// bytes appended since the last scan are parsed).
     func refreshPandaUsageIfStale(force: Bool = false) {
-        guard UserDefaults.standard.bool(forKey: SettingsKey.showPandaUsage) else { return }
+        // Same default-aware read as refreshClaudeUsageIfStale: the toggle
+        // defaults ON, but bool(forKey:) reported "off" for a fresh install
+        // (key never written), so the scanner never ran and the footer's
+        // weekly-usage row never appeared even with the switch shown on.
+        guard UserDefaults.standard.object(forKey: SettingsKey.showPandaUsage) as? Bool
+            ?? SettingsDefaults.showPandaUsage else { return }
         guard !Self.pandaUsageScanInFlight else { return }
         if !force,
            let scannedAt = pandaUsage?.scannedAt,

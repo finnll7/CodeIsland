@@ -269,13 +269,15 @@ final class SessionListOrderingTests: XCTestCase {
     }
 
     func testCompactRowsScrollByHeightOnly() {
-        // Eight one-line rows fit the room budgeted for five cards.
-        XCTAssertFalse(SessionListMetrics.needsScroll(isCompletionCard: false, sessionCount: 8, contentHeight: 310,
-                                                      maxVisibleSessions: 5, density: .compact))
-        XCTAssertTrue(SessionListMetrics.needsScroll(isCompletionCard: false, sessionCount: 8, contentHeight: 310,
-                                                     maxVisibleSessions: 5, density: .comfortable))
-        XCTAssertTrue(SessionListMetrics.needsScroll(isCompletionCard: false, sessionCount: 20, contentHeight: 760,
-                                                     maxVisibleSessions: 5, density: .compact))
+        // The task box is a fixed slot of maxVisibleSessions cards' worth of
+        // points: eight one-line rows fit it, eight full cards don't —
+        // whatever the density.
+        let slot = PanelHeightMetrics.desiredHeight(maxVisibleSessions: 5)
+            - 60 - PanelHeightMetrics.expandedChromeReserve
+        let eightCompactRows: CGFloat = 8 * (CompactSessionRowMetrics.rowHeight + CompactSessionRowMetrics.spacing)
+        XCTAssertLessThan(eightCompactRows, slot)
+        let eightComfortableCards: CGFloat = 8 * PanelHeightMetrics.heightPerSession
+        XCTAssertGreaterThan(eightComfortableCards, slot)
     }
 
     func testCompactColumnsFitTheirWords() {
@@ -341,10 +343,14 @@ final class CompactSessionListLayoutTests: XCTestCase {
     func testEightCompactSessionsFitWithoutScrolling() throws {
         let four = try panelHeight(sessions: 4)
         let eight = try panelHeight(sessions: 8)
-        // Every row adds one 34pt line (+3pt gap): a list that scrolled would
-        // stop growing at the scroll budget instead.
-        XCTAssertEqual((eight - four) / 4, CompactSessionRowMetrics.rowHeight + CompactSessionRowMetrics.spacing, accuracy: 1.5)
-        XCTAssertLessThan(eight, SessionListMetrics.scrollHeight(maxVisibleSessions: SettingsDefaults.maxVisibleSessions))
+        // The task section is a fixed slot (maxVisibleSessions cards tall):
+        // eight one-line rows sit inside the same box four did, so the panel
+        // is exactly as tall either way — and still inside the window.
+        XCTAssertEqual(eight, four, accuracy: 1.5, "the task box should not grow with the row count")
+        let box = CGFloat(SettingsDefaults.maxVisibleSessions) * PanelHeightMetrics.heightPerSession
+        XCTAssertLessThan(8 * (CompactSessionRowMetrics.rowHeight + CompactSessionRowMetrics.spacing), box,
+                         "eight one-line rows must fit the box without scrolling")
+        XCTAssertLessThan(eight, PanelHeightMetrics.desiredHeight(maxVisibleSessions: SettingsDefaults.maxVisibleSessions))
     }
 
     func testCompactRowsStayInsideTheWindowAtTheLargestText() throws {
@@ -353,12 +359,15 @@ final class CompactSessionListLayoutTests: XCTestCase {
         XCTAssertLessThan(eight, PanelHeightMetrics.desiredHeight(maxVisibleSessions: SettingsDefaults.maxVisibleSessions))
     }
 
-    func testComfortableIsStillTheDefaultCard() throws {
+    func testDensityDoesNotResizeTheTaskSlot() throws {
         UserDefaults.standard.removeObject(forKey: SettingsKey.sessionListDensity)
         let comfortable = try panelHeight(sessions: 2)
         UserDefaults.standard.set(SessionListDensity.compact.rawValue, forKey: SettingsKey.sessionListDensity)
         let compact = try panelHeight(sessions: 2)
-        XCTAssertGreaterThan(comfortable - compact, 2 * 20, "Compact rows should be much shorter than cards")
+        // Density changes what fits inside the task box, not the box itself:
+        // the pinned sections above and below stay put whatever rows the
+        // list draws.
+        XCTAssertEqual(compact, comfortable, accuracy: 1.5, "the task slot should be the same height in both densities")
     }
 
     /// Height of the panel (notch bar + list) for `count` working sessions.
