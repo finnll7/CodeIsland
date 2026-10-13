@@ -2843,6 +2843,11 @@ enum SessionListMetrics {
         CGFloat(maxVisibleSessions) * heightPerSession
     }
 
+    /// Room the pinned stats rows (usage / quota / Panda balance) need below
+    /// the scroll area — counted into the needsScroll check so a list that
+    /// would push them off the window still scrolls.
+    static let pinnedFooterReserve: CGFloat = 96
+
     /// Scroll once there are more sessions than the setting shows — or fewer,
     /// but taller than the room budgeted for them: cards with a task list, an
     /// approval row or a recap run well past 90pt each, and four of them used
@@ -2992,7 +2997,10 @@ private struct SessionListView: View {
         let needsScroll = SessionListMetrics.needsScroll(
             isCompletionCard: onlySessionId != nil,
             sessionCount: totalSessionCount,
-            contentHeight: contentHeight,
+            // The stats rows are pinned below the list (outside the scroll
+            // area): count their room against the window so a list that fits
+            // its budget only by stealing the footer's space still scrolls.
+            contentHeight: contentHeight + SessionListMetrics.pinnedFooterReserve,
             maxVisibleSessions: maxVisibleSessions,
             density: density
         )
@@ -3052,33 +3060,6 @@ private struct SessionListView: View {
                         appState.cancelCompletionQueue()
                     }
                 }
-            }
-
-            // Usage / quota rows live INSIDE the scroll content so a long list
-            // can never push them out of the window — scrolling to the bottom
-            // always reaches them (the Panda stats row was unreachable once
-            // enough concurrent tasks filled the list).
-            if onlySessionId == nil {
-                SessionListFooter(appState: appState, showUsageStats: showUsageStats, showClaudeQuota: showClaudeQuota)
-            }
-            // Panda stats — one line, split left/right: weekly usage on the
-            // left, plan balance (or the external model's balance when a
-            // "custom" model is selected in Panda) on the right. Kept separate
-            // from the upstream SessionListFooter, which owns the Claude rows.
-            let pandaStatsVisible = (showPandaUsage && appState.pandaUsage != nil
-                && !(appState.pandaUsage?.thisWeek.isEmpty ?? true))
-                || (showPandaQuota && (appState.pandaQuota.snapshot != nil
-                    || appState.pandaQuota.lastError != nil
-                    || !appState.pandaQuota.isConfigured))
-                || appState.externalModel.isLive
-            if pandaStatsVisible, onlySessionId == nil {
-                PandaStatsFooterLine(
-                    usage: appState.pandaUsage,
-                    quota: appState.pandaQuota,
-                    external: appState.externalModel.externalModel,
-                    showUsage: showPandaUsage,
-                    showQuota: showPandaQuota
-                )
             }
         }
         .padding(.vertical, 4)
@@ -3146,6 +3127,33 @@ private struct SessionListView: View {
                 )
             } else {
                 content
+            }
+
+            // Full session list only — the completion card stays focused on
+            // the finished session. The stats rows PIN to the window bottom:
+            // the session list above scrolls, so enough concurrent tasks never
+            // push the usage/quota figures out of reach.
+            if onlySessionId == nil {
+                SessionListFooter(appState: appState, showUsageStats: showUsageStats, showClaudeQuota: showClaudeQuota)
+            }
+            // Panda stats — one line, split left/right: weekly usage on the
+            // left, plan balance (or the external model's balance when a
+            // "custom" model is selected in Panda) on the right. Kept separate
+            // from the upstream SessionListFooter, which owns the Claude rows.
+            let pandaStatsVisible = (showPandaUsage && appState.pandaUsage != nil
+                && !(appState.pandaUsage?.thisWeek.isEmpty ?? true))
+                || (showPandaQuota && (appState.pandaQuota.snapshot != nil
+                    || appState.pandaQuota.lastError != nil
+                    || !appState.pandaQuota.isConfigured))
+                || appState.externalModel.isLive
+            if pandaStatsVisible, onlySessionId == nil {
+                PandaStatsFooterLine(
+                    usage: appState.pandaUsage,
+                    quota: appState.pandaQuota,
+                    external: appState.externalModel.externalModel,
+                    showUsage: showPandaUsage,
+                    showQuota: showPandaQuota
+                )
             }
         }
     }
@@ -4428,7 +4436,13 @@ private struct ThinScrollView<Content: View>: NSViewRepresentable {
         NSLayoutConstraint.activate([
             hosting.leadingAnchor.constraint(equalTo: scrollView.contentView.leadingAnchor),
             hosting.trailingAnchor.constraint(equalTo: scrollView.contentView.trailingAnchor),
-            scrollView.heightAnchor.constraint(lessThanOrEqualToConstant: maxHeight),
+            // Pin the document view to the clip view's top and width; its
+            // height stays the content's natural height, which is what makes
+            // the scroll range materialize (before, the hosting view kept its
+            // full height inside a fixed frame — the list grew past the
+            // window with no way to reach the overflow).
+            hosting.topAnchor.constraint(equalTo: scrollView.contentView.topAnchor),
+            hosting.bottomAnchor.constraint(greaterThanOrEqualTo: scrollView.contentView.bottomAnchor),
         ])
 
         return scrollView
@@ -4440,6 +4454,18 @@ private struct ThinScrollView<Content: View>: NSViewRepresentable {
         }
         scrollView.scrollerStyle = .overlay
         scrollView.verticalScroller?.controlSize = .mini
+    }
+
+    /// The height contract that makes the scrolling real: shrink with the
+    /// SwiftUI proposal, never exceed the content's natural height, and cap
+    /// at `maxHeight`. Without this the represensable reported its full
+    /// content height, the window clipped the overflow, and nothing scrolled.
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSScrollView, context: Context) -> CGSize? {
+        let contentHeight = nsView.documentView?.fittingSize.height ?? 0
+        let width = proposal.width ?? nsView.fittingSize.width
+        let proposedHeight = proposal.height ?? contentHeight
+        let height = min(proposedHeight, maxHeight).rounded(.down)
+        return CGSize(width: width, height: max(0, height))
     }
 }
 
