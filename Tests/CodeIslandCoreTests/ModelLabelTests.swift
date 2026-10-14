@@ -55,6 +55,29 @@ final class ModelLabelTests: XCTestCase {
         XCTAssertEqual(ModelLabel.displayName(for: "kimi-k2"), "kimi-k2")
     }
 
+    func testUnderscoreProviderPrefixesAreStripped() {
+        // Panda's provider tags: every model of one provider shares them, so
+        // on a narrow chip they are all the user would ever see.
+        XCTAssertEqual(ModelLabel.displayName(for: "ecloud_glm-5.3-n"), "glm-5.3-n")
+        XCTAssertEqual(ModelLabel.displayName(for: "yzt_qwen3.7-plus"), "qwen3.7-plus")
+        XCTAssertEqual(ModelLabel.displayName(for: "ecloud_zhipu_glm-5.3"), "glm-5.3")
+        XCTAssertEqual(ModelLabel.displayName(for: "ecloud/zhipu/glm-5.3-flash"), "glm-5.3-flash")
+        XCTAssertEqual(ModelLabel.displayName(for: "meta_llama-3.3-70b"), "llama-3.3-70b")
+        XCTAssertEqual(ModelLabel.label(model: "ecloud_glm-5.3-n", effort: nil), "glm-5.3-n")
+    }
+
+    func testUnderscoreNamesThatAreNotRoutesKeepTheirSpelling() {
+        XCTAssertEqual(ModelLabel.displayName(for: "mistral_large"), "mistral_large")
+        XCTAssertEqual(ModelLabel.displayName(for: "gpt_4o"), "gpt_4o")
+        XCTAssertEqual(ModelLabel.displayName(for: "some_model"), "some_model")
+    }
+
+    func testMMDDSnapshotStampsAreStripped() {
+        XCTAssertEqual(ModelLabel.displayName(for: "yzt_deepseek-v4-flash-0731"), "deepseek-v4-flash")
+        // Not trailing, so not a stamp.
+        XCTAssertEqual(ModelLabel.displayName(for: "kimi-k2-0905-preview"), "kimi-k2-0905-preview")
+    }
+
     func testUnknownClaudeShapesFallBackToTheRawId() {
         XCTAssertEqual(ModelLabel.displayName(for: "claude-opus-5-5-thinking"), "claude-opus-5-5-thinking")
         XCTAssertEqual(ModelLabel.displayName(for: "claude-2.1"), "claude-2.1")

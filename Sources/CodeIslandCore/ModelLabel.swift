@@ -233,6 +233,23 @@ public enum ModelLabel {
         if let vendor = id.range(of: "anthropic.") {
             id = String(id[vendor.upperBound...])
         }
+        // Provider route prefixes joined by an underscore ("ecloud_glm-5.3",
+        // "yzt_qwen3.7-plus"): the same decoration as a slash path, and just as
+        // useless on a card — every model of one provider shares it, so it is
+        // all a narrow chip gets to show. Only a purely alphabetic prefix of
+        // a remainder that still looks like a model id counts (a hyphen, or a
+        // letter ahead of a version digit), so "mistral_large" and "gpt_4o"
+        // keep their names.
+        while let underscore = id.firstIndex(of: "_") {
+            let prefix = id[..<underscore]
+            let rest = id[id.index(after: underscore)...]
+            let restLooksLikeAModel =
+                rest.contains("-")
+                || (rest.first?.isLetter == true && rest.contains(where: \.isNumber))
+            guard prefix.count >= 2, prefix.allSatisfy(\.isLetter),
+                  !rest.isEmpty, restLooksLikeAModel else { break }
+            id = String(rest)
+        }
         if let at = id.firstIndex(of: "@") {
             id = String(id[..<at])
         }
@@ -254,6 +271,12 @@ public enum ModelLabel {
         guard parts.count > 1 else { return id }
         // "-YYYYMMDD"
         if let last = parts.last, last.count == 8, last.allSatisfy(\.isNumber) {
+            parts.removeLast()
+            return parts.joined(separator: "-")
+        }
+        // "-MMDD" snapshot stamps ("deepseek-v4-flash-0731"): versioning
+        // noise that only ever distinguishes same-day re-releases.
+        if let last = parts.last, last.count == 4, last.allSatisfy(\.isNumber) {
             parts.removeLast()
             return parts.joined(separator: "-")
         }
