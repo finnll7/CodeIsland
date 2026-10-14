@@ -4926,7 +4926,10 @@ private struct SessionCard: View {
                 // most recent model from Panda's own state db.
                 if showModelLabel, let modelLabel = session.modelLabel
                     ?? appState.pandaWorkspaceModelLabel(cwd: session.cwd, source: session.source) {
-                    SessionTag(modelLabel, color: SessionMetadataStyle.modelTagColor, maxWidth: 120)
+                    // 150pt: Panda desktop spells models with a provider tag
+                    // ("glm-5.3-flash(ecloud)") — kept intact so the card
+                    // matches the picker the user chose from.
+                    SessionTag(modelLabel, color: SessionMetadataStyle.modelTagColor, maxWidth: 150)
                         .lineLimit(1)
                         .help(session.model ?? modelLabel)
                 }

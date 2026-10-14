@@ -66,6 +66,17 @@ final class ModelLabelTests: XCTestCase {
         XCTAssertEqual(ModelLabel.label(model: "ecloud_glm-5.3-n", effort: nil), "glm-5.3-n")
     }
 
+    func testPandaDesktopUINamesPassThroughUnchanged() {
+        // turnMetrics reports the model as the desktop picker spells it —
+        // provider tag suffix and custom display names included. None of the
+        // id-shaping rules may touch them.
+        XCTAssertEqual(ModelLabel.displayName(for: "glm-5.3-flash(ecloud)"), "glm-5.3-flash(ecloud)")
+        XCTAssertEqual(ModelLabel.displayName(for: "glm-5.3(ecloud)"), "glm-5.3(ecloud)")
+        XCTAssertEqual(ModelLabel.displayName(for: "deepseek-v4-flash(ecloud)"), "deepseek-v4-flash(ecloud)")
+        XCTAssertEqual(ModelLabel.displayName(for: "FX-DeepSeek"), "FX-DeepSeek")
+        XCTAssertEqual(ModelLabel.label(model: "FX-DeepSeek", effort: nil), "FX-DeepSeek")
+    }
+
     func testUnderscoreNamesThatAreNotRoutesKeepTheirSpelling() {
         XCTAssertEqual(ModelLabel.displayName(for: "mistral_large"), "mistral_large")
         XCTAssertEqual(ModelLabel.displayName(for: "gpt_4o"), "gpt_4o")

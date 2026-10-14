@@ -699,6 +699,54 @@ final class JSONLTailerTests: XCTestCase {
         XCTAssertEqual(JSONLTailer.extractText(from: "<system-reminder> what is this tag"), "<system-reminder> what is this tag")
     }
 
+    // MARK: - Panda desktop turnMetrics
+
+    /// Panda desktop appends a per-turn metrics snapshot every time a turn
+    /// settles; its `modelName` is spelled exactly as the desktop UI spells
+    /// it, and the hook channel never names a model at all.
+    private func pandaTurnMetrics(_ turns: [[String: Any]]) -> String {
+        let payload: [String: Any] = [
+            "type": "session_meta", "field": "turnMetrics", "value": turns,
+        ]
+        return jsonString(payload)
+    }
+
+    func testScanLinesTakesTheLatestTurnsUISpelledModelName() {
+        let line = pandaTurnMetrics([
+            ["turnId": "t1", "modelId": "yzt_qwen3.7-plus", "modelName": "qwen3.7-plus", "status": "completed"],
+            ["turnId": "t2", "modelId": "ecloud_glm-5.3-n", "modelName": "glm-5.3-flash(ecloud)", "status": "completed"],
+        ])
+        let delta = JSONLTailer.scanLines(Data((line + "\n").utf8)).delta
+        XCTAssertEqual(delta.modelObservation?.model, "glm-5.3-flash(ecloud)")
+    }
+
+    func testScanLinesPandaTurnMetricsFallsBackToModelIdAndSkipsForeignShapes() {
+        let fallback = pandaTurnMetrics([
+            ["turnId": "t1", "modelId": "custom:c2c7914d", "status": "completed"],
+        ])
+        XCTAssertEqual(
+            JSONLTailer.scanLines(Data((fallback + "\n").utf8)).delta.modelObservation?.model,
+            "custom:c2c7914d"
+        )
+
+        // A session_meta row of another field is not a model report.
+        let foreign = jsonString([
+            "type": "session_meta", "field": "contextWindow", "value": [["modelId": "ecloud_glm-5.3"]],
+        ])
+        XCTAssertNil(JSONLTailer.scanLines(Data((foreign + "\n").utf8)).delta.modelObservation)
+    }
+
+    func testAttachBackfillPicksUpThePandaTurnMetricsModel() {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codeisland-panda-metrics-\(UUID().uuidString).jsonl")
+        try? (pandaTurnMetrics([
+            ["turnId": "t1", "modelId": "ecloud_glm-5.3", "modelName": "glm-5.3(ecloud)", "status": "completed"],
+        ]) + "\n").write(to: url, atomically: true, encoding: .utf8)
+        addTeardownBlock { try? FileManager.default.removeItem(at: url) }
+
+        XCTAssertEqual(JSONLTailer.scanTailForAttach(path: url.path)?.delta.modelObservation?.model, "glm-5.3(ecloud)")
+    }
+
     // MARK: - Fixtures
 
     private func assistantLine(text: String) -> String {

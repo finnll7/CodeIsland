@@ -609,6 +609,21 @@ public final class JSONLTailer: @unchecked Sendable {
             if let observation = ModelObservation.fromCodexTurnContext(json) {
                 delta.modelObservation = observation
             }
+        case "session_meta":
+            // Panda desktop's per-turn metrics snapshot, appended every time a
+            // turn settles. Its hook channel never names a model, so this row —
+            // carrying the model spelled exactly as the desktop UI spells it
+            // ("glm-5.3-flash(ecloud)", "FX-DeepSeek") — is the only per-session
+            // source of which model is running. The value array accumulates one
+            // entry per turn, so the last one is the turn that just finished.
+            guard (json["field"] as? String) == "turnMetrics",
+                  let turns = json["value"] as? [[String: Any]],
+                  let last = turns.last else { return }
+            let name = (last["modelName"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let id = (last["modelId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let raw = name?.isEmpty == false ? name : id
+            guard let model = raw, !model.isEmpty, !model.hasPrefix("<") else { return }
+            delta.modelObservation = ModelObservation(model: model, effort: nil)
         case "event_msg":
             delta.hasActivity = true
             guard let payload = json["payload"] as? [String: Any],
@@ -853,6 +868,9 @@ public final class JSONLTailer: @unchecked Sendable {
         case claudeRecap
         /// Codex `turn_context` (the turn's model + reasoning effort).
         case codexTurnContext
+        /// Panda desktop `session_meta` / `turnMetrics` snapshot: the UI-spelled
+        /// model name of the turn that just finished.
+        case pandaTurnMetrics
         case irrelevant
     }
 
@@ -924,6 +942,13 @@ public final class JSONLTailer: @unchecked Sendable {
                                containsMarker(ptr, total: min(total, 4096), marker: awaySummaryMarker) {
                                 return .claudeRecap
                             }
+                            // Panda desktop's per-turn metrics snapshot. Its hook
+                            // channel never names a model, so this row is the only
+                            // per-session source of which model is running.
+                            if hasExactValue(ptr, at: valueStart, total: total, expect: sessionMetaBytes),
+                               containsMarker(ptr, total: min(total, 4096), marker: turnMetricsMarker) {
+                                return .pandaTurnMetrics
+                            }
                         case 0x74:  // 't'
                             if hasExactValue(ptr, at: valueStart, total: total, expect: turnContextBytes) {
                                 return .codexTurnContext
@@ -981,6 +1006,8 @@ public final class JSONLTailer: @unchecked Sendable {
     private static let systemBytes: [UInt8] = Array(#"system""#.utf8)
     private static let awaySummaryMarker: [UInt8] = Array(#""subtype":"away_summary""#.utf8)
     private static let turnContextBytes: [UInt8] = Array(#"turn_context""#.utf8)
+    private static let sessionMetaBytes: [UInt8] = Array(#"session_meta""#.utf8)
+    private static let turnMetricsMarker: [UInt8] = Array(#""field":"turnMetrics""#.utf8)
     private static let codexMessagePayloadMarker: [UInt8] = Array(
         #""payload":{"type":"message","#.utf8
     )
