@@ -48,6 +48,7 @@ var lastPlaybackRate: Double = 0
 var lastSignature = ""
 var hadTrack = false
 var sysPlaying = false
+var lastReportedPID: pid_t = 0
 
 // Poll + notify pipeline. QQ Music (and friends) freeze their MediaRemote
 // info on pause — playbackRate stays 1, elapsed stops moving — so the
@@ -96,14 +97,19 @@ func sample() {
                 fflush(stdout)
             }
             // Player pid travels separately (changes when the user switches
-            // players) — piggybacked outside the signature-dedup gate.
+            // players) — but only a CHANGE is worth a line: reporting it
+            // unconditionally on every poll woke the app once a second
+            // around the clock, blocking CPU idle for zero information.
             if let getPIDFunc {
                 getPIDFunc(DispatchQueue.main) { pid in
-                    let payloadPID = ["playerPID": Int(pid)]
-                    if let data = try? JSONSerialization.data(withJSONObject: payloadPID),
-                       let line = String(data: data, encoding: .utf8) {
-                        fputs(line + "\n", stdout)
-                        fflush(stdout)
+                    if pid != lastReportedPID {
+                        lastReportedPID = pid
+                        let payloadPID = ["playerPID": Int(pid)]
+                        if let data = try? JSONSerialization.data(withJSONObject: payloadPID),
+                           let line = String(data: data, encoding: .utf8) {
+                            fputs(line + "\n", stdout)
+                            fflush(stdout)
+                        }
                     }
                     finish()
                 }
@@ -147,11 +153,24 @@ DispatchQueue.global(qos: .utility).async {
     }
 }
 
-// 1s poll keeps elapsed time moving and papers over missed notifications.
-let timer = Timer(timeInterval: 1, repeats: true) { _ in
-    fetch()
+// Poll keeps elapsed time moving and papers over missed notifications.
+// Playing: 1s (the progress bar lives off it). Paused/no track: 3s — the
+// notifications still fire immediately on a real change, so the slower
+// backstop only costs a little recovery latency while saving wakeups.
+var pollTimer: Timer?
+var pollInterval: TimeInterval { sysPlaying ? 1 : 3 }
+func rebuildPollTimerIfNeeded() {
+    let wanted = pollInterval
+    if let pollTimer, pollTimer.timeInterval == wanted { return }
+    pollTimer?.invalidate()
+    let timer = Timer(timeInterval: wanted, repeats: true) { _ in
+        if pollTimer?.timeInterval != pollInterval { rebuildPollTimerIfNeeded() }
+        fetch()
+    }
+    RunLoop.main.add(timer, forMode: .common)
+    pollTimer = timer
 }
-RunLoop.main.add(timer, forMode: .common)
+rebuildPollTimerIfNeeded()
 fetch()
 
 while true {

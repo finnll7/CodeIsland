@@ -123,7 +123,14 @@ final class NowPlayingMonitor {
         stdinHandle = stdinPipe.fileHandleForWriting
         stdoutPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
-            guard !data.isEmpty else { return }
+            guard !data.isEmpty else {
+                // EOF: the probe closed stdout (it is exiting). readabilityHandler
+                // keeps firing on a readable-at-EOF pipe — a hot spin that held a
+                // full core for days — so detach it here and let the process
+                // termination handler drive the restart.
+                handle.readabilityHandler = nil
+                return
+            }
             Task { @MainActor in self?.consumeProbeData(data) }
         }
     }
