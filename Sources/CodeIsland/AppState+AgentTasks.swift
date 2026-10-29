@@ -30,7 +30,8 @@ extension AppState {
         path: String,
         endOffset: UInt64,
         attachmentToken: UUID,
-        searchCodexModel: Bool = false
+        searchCodexModel: Bool = false,
+        searchPandaModel: Bool = false
     ) {
         guard endOffset > 0 else {
             pendingAgentTaskBackfills.removeValue(forKey: sessionId)
@@ -42,11 +43,15 @@ extension AppState {
             let codexModel = searchCodexModel
                 ? ModelObservation.latestCodexTurnContext(path: path, endOffset: endOffset)
                 : nil
+            let pandaModel = searchPandaModel
+                ? ModelObservation.latestPandaTurnMetrics(path: path, endOffset: endOffset)
+                : nil
             await self?.finishAgentTaskBackfill(
                 sessionId: sessionId,
                 attachmentToken: attachmentToken,
                 backfill: backfill,
-                codexModel: codexModel
+                codexModel: codexModel,
+                pandaModel: pandaModel
             )
         }
     }
@@ -55,7 +60,8 @@ extension AppState {
         sessionId: String,
         attachmentToken: UUID,
         backfill: AgentTaskTranscript.Backfill?,
-        codexModel: ModelObservation? = nil
+        codexModel: ModelObservation? = nil,
+        pandaModel: ModelObservation? = nil
     ) {
         guard let pending = pendingAgentTaskBackfills[sessionId],
               pending.attachmentToken == attachmentToken else { return }
@@ -65,6 +71,10 @@ extension AppState {
         var changed = false
         if let codexModel, !pending.sawLiveModelObservation,
            session.applyBackfilledModelObservation(codexModel) {
+            changed = true
+        }
+        if let pandaModel, !pending.sawLiveModelObservation,
+           session.applyBackfilledModelObservation(pandaModel) {
             changed = true
         }
         if let backfill {

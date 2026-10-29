@@ -113,6 +113,71 @@ public struct ModelObservation: Equatable, Sendable {
         return nil
     }
 
+    /// Newest Panda desktop `turnMetrics` row in a transcript, searched
+    /// backwards in `chunkSize` pieces over at most `maxBytes`.
+    ///
+    /// Panda appends one cumulative-metrics row per completed turn, and each
+    /// row itself grows with the turn count, so on a long-lived session the
+    /// newest row can sit hundreds of kilobytes above the attach-time tail
+    /// window. Same chunked back-search as
+    /// ``latestCodexTurnContext(path:endOffset:maxBytes:chunkSize:)``.
+    public static func latestPandaTurnMetrics(
+        path: String,
+        endOffset: UInt64? = nil,
+        maxBytes: UInt64 = 4 * 1024 * 1024,
+        chunkSize: UInt64 = 128 * 1024
+    ) -> ModelObservation? {
+        guard chunkSize > 0, let handle = FileHandle(forReadingAtPath: path) else { return nil }
+        defer { try? handle.close() }
+        guard let size = try? handle.seekToEnd() else { return nil }
+        let end = min(endOffset ?? size, size)
+        let floor = end > maxBytes ? end - maxBytes : 0
+        var chunkEnd = end
+        // Head of the region already searched: the tail of a row that began
+        // in an earlier chunk (its newline excluded).
+        var carry = Data()
+        while chunkEnd > floor {
+            let chunkStart = max(floor, chunkEnd > chunkSize ? chunkEnd - chunkSize : 0)
+            guard (try? handle.seek(toOffset: chunkStart)) != nil,
+                  var region = try? handle.read(upToCount: Int(chunkEnd - chunkStart)),
+                  !region.isEmpty else { return nil }
+            region.append(carry)
+            var rows = region.startIndex..<region.endIndex
+            if chunkStart > 0 {
+                // Up to the first newline, the row may have started earlier.
+                guard let newline = region.firstIndex(of: 0x0A) else {
+                    carry = region
+                    chunkEnd = chunkStart
+                    continue
+                }
+                carry = Data(region[..<newline])
+                rows = region.index(after: newline)..<region.endIndex
+            }
+            if let observation = lastTurnMetrics(in: region[rows]) { return observation }
+            chunkEnd = chunkStart
+        }
+        return nil
+    }
+
+    private static let turnMetricsRowMarker = Data(#""field":"turnMetrics""#.utf8)
+
+    private static func lastTurnMetrics(in rows: Data.SubSequence) -> ModelObservation? {
+        guard rows.range(of: turnMetricsRowMarker) != nil else { return nil }
+        for row in rows.split(separator: 0x0A).reversed() where row.range(of: turnMetricsRowMarker) != nil {
+            guard let json = try? JSONSerialization.jsonObject(with: Data(row)) as? [String: Any],
+                  json["type"] as? String == "session_meta",
+                  (json["field"] as? String) == "turnMetrics",
+                  let turns = json["value"] as? [[String: Any]],
+                  let last = turns.last else { continue }
+            let name = (last["modelName"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let id = (last["modelId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let raw = name?.isEmpty == false ? name : id
+            guard let model = raw, !model.isEmpty, !model.hasPrefix("<") else { continue }
+            return ModelObservation(model: model, effort: nil)
+        }
+        return nil
+    }
+
     /// Newest assistant model/effort in a Claude transcript blob, sidechain
     /// lines included — for a subagent's own transcript, where every line is a
     /// sidechain line. (The live tailer skips sidechain lines on purpose: in a

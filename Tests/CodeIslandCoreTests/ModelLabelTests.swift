@@ -171,6 +171,77 @@ final class ModelLabelTests: XCTestCase {
         XCTAssertNil(ModelObservation.from(model: "gpt-5.6-sol", effort: nil, timestamp: "t")?.observedAt)
     }
 
+    // MARK: - Panda turnMetrics back-search
+
+    private func jsonString(_ object: [String: Any]) -> String {
+        let data = try! JSONSerialization.data(withJSONObject: object)
+        return String(data: data, encoding: .utf8)!
+    }
+
+    private func pandaMetricsLine(modelName: String, modelId: String) -> String {
+        let payload: [String: Any] = [
+            "type": "session_meta", "field": "turnMetrics",
+            "value": [["turnId": UUID().uuidString, "modelId": modelId, "modelName": modelName, "status": "completed"]],
+        ]
+        return jsonString(payload)
+    }
+
+    private func writeTranscript(_ lines: [String]) throws -> String {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codeisland-panda-search-\(UUID().uuidString).jsonl")
+        try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
+        addTeardownBlock { try? FileManager.default.removeItem(at: url) }
+        return url.path
+    }
+
+    func testLatestPandaTurnMetricsFindsTheNewestRowBeyondTheTailWindow() throws {
+        let filler = jsonString([
+            "type": "assistant", "message": ["content": [["type": "text", "text": String(repeating: "x", count: 300_000)]]],
+        ])
+        let path = try writeTranscript([
+            pandaMetricsLine(modelName: "qwen3.7-plus", modelId: "yzt_qwen3.7-plus"),
+            filler,
+            pandaMetricsLine(modelName: "glm-5.3-flash(ecloud)", modelId: "ecloud_glm-5.3-n"),
+        ])
+        XCTAssertEqual(
+            ModelObservation.latestPandaTurnMetrics(path: path)?.model,
+            "glm-5.3-flash(ecloud)",
+            "the newest completed turn wins, even 300 KB above the attach window"
+        )
+    }
+
+    func testLatestPandaTurnMetricsHonoursTheEndOffsetAndTheSearchBound() throws {
+        let first = pandaMetricsLine(modelName: "qwen3.7-plus", modelId: "yzt_qwen3.7-plus")
+        let second = pandaMetricsLine(modelName: "glm-5.3-flash(ecloud)", modelId: "ecloud_glm-5.3-n")
+        let head = (first + "\n").utf8.count
+        let path = try writeTranscript([first, second])
+
+        XCTAssertEqual(
+            ModelObservation.latestPandaTurnMetrics(path: path, endOffset: UInt64(head))?.model,
+            "qwen3.7-plus",
+            "bytes past the tailer's start offset are the tailer's"
+        )
+        XCTAssertNil(
+            ModelObservation.latestPandaTurnMetrics(path: path, maxBytes: 10),
+            "the search stops at its bound"
+        )
+        XCTAssertNil(ModelObservation.latestPandaTurnMetrics(path: path + ".missing"))
+    }
+
+    func testLatestPandaTurnMetricsHandlesRowSpanningChunkBoundaries() throws {
+        // A cumulative row grows with the turn count: make one wide enough to
+        // straddle several small chunks and keep the back-search correct.
+        let turns: [[String: Any]] = (0..<600).map {
+            ["turnId": "t\($0)", "modelId": "ecloud_glm-5.3", "modelName": "glm-5.3(ecloud)", "status": "completed"]
+        }
+        let wide = jsonString(["type": "session_meta", "field": "turnMetrics", "value": turns])
+        let path = try writeTranscript([wide])
+        XCTAssertEqual(
+            ModelObservation.latestPandaTurnMetrics(path: path, chunkSize: 16 * 1024)?.model,
+            "glm-5.3(ecloud)"
+        )
+    }
+
     // MARK: - Codex turn_context search
 
     private func turnContext(effort: String, turn: String) -> String {

@@ -124,8 +124,11 @@ extension AppState {
             endOffset: attachOffset,
             attachmentToken: attachmentToken,
             // A long Codex turn's output often pushes its turn_context out of
-            // the tail window; look further back, off the main actor.
-            searchCodexModel: sessions[sessionId]?.source == "codex" && tailScan?.delta.modelObservation == nil
+            // the tail window; look further back, off the main actor. Same for
+            // Panda's cumulative turnMetrics rows — one per completed turn,
+            // each growing with the turn count, newest often hundreds of KB up.
+            searchCodexModel: sessions[sessionId]?.source == "codex" && tailScan?.delta.modelObservation == nil,
+            searchPandaModel: sessions[sessionId]?.source == "panda" && tailScan?.delta.modelObservation == nil
         )
     }
 
