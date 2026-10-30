@@ -1996,11 +1996,13 @@ private struct NotchCardContextRow: View {
                     .help(session?.sourceLabel ?? src)
                     .accessibilityLabel(session?.sourceLabel ?? src)
             }
-            if let label = SessionHeadline.contextLabel(
-                projectName: cwd.map { ($0 as NSString).lastPathComponent },
-                sessionLabel: session?.sessionLabel,
-                showProjectName: showProjectName
-            ) {
+            if let label = session?.isPandaMemoryWorker == true
+                ? L10n.shared["memory_worker_title"]
+                : SessionHeadline.contextLabel(
+                    projectName: cwd.map { ($0 as NSString).lastPathComponent },
+                    sessionLabel: session?.sessionLabel,
+                    showProjectName: showProjectName
+                ) {
                 Text(label)
                     .font(.system(size: type.body, weight: .bold, design: .monospaced))
                     .foregroundStyle(.white.opacity(0.9))
@@ -3010,8 +3012,8 @@ private struct SessionListView: View {
         let compactColumns: (project: CGFloat, status: CGFloat) = density == .compact
             ? (
                 CompactSessionRowMetrics.projectColumnWidth(
-                    names: groups.flatMap(\.ids).compactMap {
-                        appState.sessions[$0]?.headline(showProjectName: showProjectName).text
+                    names: groups.flatMap(\.ids).compactMap { id in
+                        appState.sessions[id].map { sessionHeadlineText($0, showProjectName: showProjectName) }
                     },
                     fontSize: fontSize,
                     cap: CompactSessionRowMetrics.projectColumnCap(fontSize: fontSize)
@@ -4468,7 +4470,9 @@ private struct SessionIdentityLine: View {
         // Identity format: just the session title ("CodeIsland") — no prefix,
         // no workspace path. A session without a title falls back to the
         // agent's name.
-        let titleText = session.headline(showProjectName: false).text
+        let titleText = session.isPandaMemoryWorker
+            ? L10n.shared["memory_worker_title"]
+            : session.headline(showProjectName: false).text
         return HStack(spacing: 4) {
             Text(titleText)
                 .font(.system(size: projectFontSize, weight: .bold, design: .monospaced))
@@ -5184,7 +5188,7 @@ private struct SessionCard: View {
             HStack(spacing: 8) {
                 MascotView(source: session.mascotSource, status: session.status, size: 18)
                     .frame(width: 22)
-                Text(session.headline(showProjectName: showProjectName).text)
+                Text(sessionHeadlineText(session, showProjectName: showProjectName))
                     .font(.system(size: fontSize, weight: .bold, design: .monospaced))
                     .foregroundStyle(.white.opacity(0.92))
                     .lineLimit(1)
@@ -5279,7 +5283,7 @@ private struct SessionCard: View {
     /// The row keeps one line; the hover shows who it is and the latest reply.
     private var compactTooltip: String {
         CompactSessionRowMetrics.tooltip(
-            name: session.headline(showProjectName: showProjectName).text,
+            name: sessionHeadlineText(session, showProjectName: showProjectName),
             latest: session.lastAssistantMessage.map(stripDirectives)
                 ?? session.visibleRecap?.text
                 ?? session.lastUserPrompt
@@ -6083,6 +6087,14 @@ private func monogramIcon(for source: String, size: CGFloat) -> NSImage {
     return image
 }
 
+/// Card title: Panda's background memory worker ("memory-stage2--…") reads
+/// as what it is instead of a mystery "Session" job (no title, cwd "/").
+private func sessionHeadlineText(_ session: SessionSnapshot, showProjectName: Bool) -> String {
+    session.isPandaMemoryWorker
+        ? L10n.shared["memory_worker_title"]
+        : session.headline(showProjectName: showProjectName).text
+}
+
 private struct SessionTag: View {
     let text: String
     var color: Color = .white.opacity(0.7)
@@ -6278,7 +6290,7 @@ enum SessionMetadataStyle {
     /// session title (or the agent), never the folder.
     static func collapsedRecapTooltip(for session: SessionSnapshot?, showProjectName: Bool) -> String {
         guard let session, let recap = session.visibleRecap else { return "" }
-        return "↻ \(session.headline(showProjectName: showProjectName).text)\n\(recap.text)"
+        return "↻ \(sessionHeadlineText(session, showProjectName: showProjectName))\n\(recap.text)"
     }
 }
 

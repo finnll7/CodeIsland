@@ -54,4 +54,22 @@ final class SessionHeadlineTests: XCTestCase {
             "no title: show nothing rather than the folder"
         )
     }
+
+    func testPandaMemoryWorkerIsRecognizedAndOrdinarySessionsAreNot() {
+        var worker = snapshot(cwd: "/", title: nil, source: "panda")
+        worker.providerSessionId = "memory-stage2--Users-kenshin-project-huixuesheng"
+        XCTAssertTrue(worker.isPandaMemoryWorker)
+
+        var stage1 = snapshot(cwd: "/", title: nil, source: "panda")
+        stage1.providerSessionId = "memory-stage1--Users-kenshin-project-CodeIsland"
+        XCTAssertTrue(stage1.isPandaMemoryWorker, "any memory-worker stage is an internal task")
+
+        var conversation = snapshot(cwd: "/tmp/x", title: nil, source: "panda")
+        conversation.providerSessionId = "64ae46cb-26ee-4cdf-8b93-a134a5d92585"
+        XCTAssertFalse(conversation.isPandaMemoryWorker)
+
+        var otherCLI = snapshot(cwd: "/tmp/x", title: nil, source: "claude")
+        otherCLI.providerSessionId = "memory-stage2--Users-kenshin-project-CodeIsland"
+        XCTAssertFalse(otherCLI.isPandaMemoryWorker, "the prefix only means something on a panda session")
+    }
 }

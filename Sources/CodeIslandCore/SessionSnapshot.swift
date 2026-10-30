@@ -491,6 +491,17 @@ public struct SessionSnapshot: Sendable {
         return Self.resolvedProjectDisplayName(from: cwd)
     }
 
+    /// Panda's background memory worker (provider session ids like
+    /// "memory-stage2--Users-kenshin-project-…"): an internal housekeeping
+    /// task, not a user conversation. It has no title and no real cwd, so
+    /// unlabeled it reads as a mystery job — the app layer shows it under a
+    /// dedicated name instead.
+    public var isPandaMemoryWorker: Bool {
+        guard source == "panda" else { return false }
+        let id = providerSessionId ?? ""
+        return id.hasPrefix("memory-stage")
+    }
+
     /// Directory names that are agent metadata, not user projects. Only these
     /// exact dot-dirs are peeled / treated as unhelpful — legitimate dot-named
     /// repos (.dotfiles, .config, .emacs.d) must keep their own name.
