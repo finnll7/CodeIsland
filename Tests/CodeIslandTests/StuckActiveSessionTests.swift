@@ -83,6 +83,58 @@ final class StuckActiveSessionTests: XCTestCase {
         XCTAssertNil(appState.sessions["claude-1"]?.toolDescription)
     }
 
+    // MARK: - Idle-time compact events must not revive the card
+
+    private func hookEvent(_ json: [String: Any]) throws -> HookEvent {
+        let data = try JSONSerialization.data(withJSONObject: json)
+        guard let event = HookEvent(from: data) else {
+            XCTFail("HookEvent did not parse")
+            throw XCTSkip("unparseable fixture")
+        }
+        return event
+    }
+
+    /// A large transcript gets idle-time auto-compact/prewarm repeatedly —
+    /// letting it through pinned the card at "Compacting context…" forever
+    /// (each event refreshed lastActivity, starving the stale-active sweep).
+    @MainActor
+    func testIdlePandaIgnoresIdleTimeCompactEvents() throws {
+        let appState = AppState()
+        var session = SessionSnapshot()
+        session.source = "panda"
+        session.status = .idle
+        appState.sessions["panda-1"] = session
+
+        appState.handleEvent(try hookEvent([
+            "hook_event_name": "PreCompact", "session_id": "panda-1",
+        ]))
+
+        XCTAssertEqual(appState.sessions["panda-1"]?.status, .idle,
+            "an idle-time prewarm/compact is background housekeeping, not a running task")
+        XCTAssertNil(appState.sessions["panda-1"]?.toolDescription)
+
+        appState.handleEvent(try hookEvent([
+            "hook_event_name": "PostCompact", "session_id": "panda-1",
+        ]))
+        XCTAssertEqual(appState.sessions["panda-1"]?.status, .idle)
+    }
+
+    @MainActor
+    func testInFlightPandaCompactKeepsItsHonestDisplay() throws {
+        let appState = AppState()
+        var session = SessionSnapshot()
+        session.source = "panda"
+        session.status = .running
+        appState.sessions["panda-2"] = session
+
+        appState.handleEvent(try hookEvent([
+            "hook_event_name": "PreCompact", "session_id": "panda-2",
+        ]))
+
+        XCTAssertEqual(appState.sessions["panda-2"]?.status, .processing)
+        XCTAssertEqual(appState.sessions["panda-2"]?.toolDescription, "Compacting context…")
+    }
+
     @MainActor
     func testBusyWaitingAndRemoteCardsAreLeftAlone() {
         let appState = AppState()

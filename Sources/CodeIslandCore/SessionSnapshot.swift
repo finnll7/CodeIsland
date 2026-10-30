@@ -1145,6 +1145,20 @@ public func reduceEvent(
         return effects
     }
 
+    // Panda's idle-time auto-compact/prewarm is background housekeeping: the
+    // user is not waiting on it, and on a large transcript it fires repeatedly
+    // (and can retry for a long while). Letting it through would flip a
+    // settled card back to processing ("Compacting context…") and keep
+    // refreshing lastActivity — a permanent mystery running task. A turn
+    // already in flight keeps its honest compacting display, and a compact
+    // that precedes a new prompt is followed by that prompt's own events.
+    if eventName == "PreCompact" || eventName == "PostCompact",
+       let existing = sessions[sessionId],
+       existing.source == "panda",
+       existing.status == .idle {
+        return effects
+    }
+
     // Route subagent-specific events
     if let agentId = event.agentId {
         // Subagents and teammates share the parent's task list: their
