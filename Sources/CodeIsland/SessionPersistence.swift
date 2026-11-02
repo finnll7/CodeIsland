@@ -56,6 +56,10 @@ struct PersistedSession: Codable {
     /// restored card is bound to the gateway daemon again and must still be
     /// swept like a hook-only one. nil = false, as in older files.
     var hermesChatElsewhere: Bool? = nil
+    /// Diagnostic mirror of the live status. Restore ignores it (a relaunch
+    /// always starts cards idle), but without it on disk an after-the-fact
+    /// "why was that card processing" was undiagnosable.
+    var status: String? = nil
 }
 
 enum SessionPersistence {
@@ -134,7 +138,8 @@ enum SessionPersistence {
                 recap: s.recap,
                 reasoningEffort: s.reasoningEffort,
                 claudeDesktopSessionId: s.claudeDesktopSessionId,
-                hermesChatElsewhere: s.hermesChatElsewhere ? true : nil
+                hermesChatElsewhere: s.hermesChatElsewhere ? true : nil,
+                status: s.status.persistenceKey
             )
         }
         do {

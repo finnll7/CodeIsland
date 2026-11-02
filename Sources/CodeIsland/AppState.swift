@@ -713,12 +713,22 @@ final class AppState {
     func settleStuckActiveSessions(now: Date = Date()) {
         for (key, session) in sessions
             where !session.isRemote
-            && !key.hasPrefix(Self.coworkSessionPrefix)
-            && Self.isStuckActiveSession(
+            && !key.hasPrefix(Self.coworkSessionPrefix) {
+            // Panda desktop hosts its remote/worker conversations (cwd "/" —
+            // the memory worker, and the startup batch that re-processes every
+            // conversation) itself: the host process never exits, so a lost
+            // Stop pinned those cards for the full stale timeout. Two minutes
+            // of silence settles them; the next event re-lights the card.
+            let timeout: TimeInterval =
+                session.source == "panda" && session.cwd == "/"
+                ? 120
+                : Self.stuckActiveSettleSeconds
+            guard Self.isStuckActiveSession(
                 status: session.status,
                 lastActivity: session.lastActivity,
-                now: now
-            ) {
+                now: now,
+                timeout: timeout
+            ) else { continue }
             sessions[key]?.status = .idle
             sessions[key]?.currentTool = nil
             sessions[key]?.toolDescription = nil

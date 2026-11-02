@@ -347,6 +347,20 @@ public enum AgentStatus: Sendable, Equatable {
     case running
     case waitingApproval
     case waitingQuestion
+
+    /// Persistence key for the sessions.json diagnostic mirror. Restore never
+    /// reads it back — a relaunch always starts cards idle — but without the
+    /// field on disk, "which card is stuck at processing" was undiagnosable
+    /// after the fact.
+    public var persistenceKey: String {
+        switch self {
+        case .idle: return "idle"
+        case .processing: return "processing"
+        case .running: return "running"
+        case .waitingApproval: return "waitingApproval"
+        case .waitingQuestion: return "waitingQuestion"
+        }
+    }
 }
 
 /// Stable activity groups used for compact status text. The raw tool name stays
